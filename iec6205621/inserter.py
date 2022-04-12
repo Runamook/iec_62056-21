@@ -11,7 +11,7 @@ class Inserter:
         self.meter_ts = f'{meter_ts[0]}:{self.meter_id}_{meter_ts[2]}' # org:meterId_ts
 
     def insert(self, data):
-        self.redis_insert(data)
+        return self.redis_insert(data)
 
     def redis_insert(self, data):
         """
@@ -22,6 +22,8 @@ class Inserter:
             data = json.dumps(data)
             r = Redis(host=self.host, port=self.port)
             r.set(name=self.meter_ts, value=data)
-            self.logger.debug(f'{self.meter_id} Redis insert successful')
+            self.logger.debug(f'{self.meter_id} {self.meter_ts} Redis insert successful')
+            return True
         except Exception as e:
-            self.logger.error(f'{self.meter_id} Redis instert failed "{e}"')
+            self.logger.error(f'{self.meter_id} {self.meter_ts} Redis instert failed "{e}"')
+            return False

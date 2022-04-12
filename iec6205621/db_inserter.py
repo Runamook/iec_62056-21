@@ -45,7 +45,7 @@ class R2PG:
         self.prepared = False
 
         # Controls
-        self.delete = kwargs.get('delete') or 0          # 1 - True, 0 - False. If True - delete Redis record after
+        self.delete = kwargs.get('delete') or 1          # 1 - True, 0 - False. If True - delete Redis record after
         self.get_all = kwargs.get('get_all') or 0        # 1 - True, 0 - False. If True - do not use org, get all keys from Redis
         
         self.org = kwargs.get('org') or 'test'
@@ -135,7 +135,7 @@ class R2PG:
         :param code: str, OBIS code
         :return: boolean, True if successfully inserted new OBIS and updated cache
         """
-        query = f"INSERT INTO {self.pg_schema}.obis (obis) VALUES '{code}'"
+        query = f"INSERT INTO {self.pg_schema}.obis (obis) VALUES ('{code}');"
         try:
             self._execute_query(query, commit=True)
             self.logger.info(f'Inserted new OBIS code {code}')
@@ -169,8 +169,11 @@ class R2PG:
         return data
 
     def _insert_many(self, queries):
+        #query_header = f'PREPARE m (int, timestamptz, int, varchar(40)) \
+        #AS INSERT INTO {self.pg_schema}.data (meter_id, ts, obis_id, value) VALUES($1, $2, $3, $4);'
         query_header = f'PREPARE m (int, timestamptz, int, varchar(40)) \
-        AS INSERT INTO {self.pg_schema}.data (meter_id, ts, obis_id, value) VALUES($1, $2, $3, $4);'
+            AS INSERT INTO {self.pg_schema}.data (meter_id, ts, obis_id, value) VALUES($1, $2, $3, $4) ON CONFLICT ON CONSTRAINT data_un DO UPDATE SET value=$4;'
+
         q = None
         try:
             start = time.time()

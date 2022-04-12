@@ -1,119 +1,67 @@
 #!/usr/bin/env python3
 
-import serial
 import argparse
-import time
-import functools
-import operator
 import os
+import sys
+import iec6205621.client as client
+import datetime
 
 
-def bcc(data):
-    """Computes the BCC (block  check character) value"""
-    return bytes([functools.reduce(operator.xor, data, 0)])
 
-def remove_parity_bits(data):
-    """Removes the parity bits from the (response) data"""
-    return bytes(b & 0x7f for b in data)
+class MyMeter(client.Meter):
+    def __init__(self, timeout: int = 300, **meter):
+        super().__init__(timeout=timeout, **meter)
+
+    def log(self, severity, log_string):
+        """
+        Reassign log method to write into file
+        Try normalizing byte strings
+        """
+        t = datetime.datetime.now().strftime('%d-%m-%y %H:%M:%S')
+        try:
+            if isinstance(log_string, bytes):
+                logstring = client.normalize_log(log_string)
+            else:
+                logstring = client.normalize_log_str(log_string)
+
+        except Exception as e:
+            print(f"{t} ERROR Normalization problem: {e}, str = [{log_string}], type = {type(log_string)}")
+            logstring = log_string
+
+        # logstring = log_string
+        #self.logger.debug(f'Received for normalization: [{logstring}] type = {type(logstring)}')
+
+        if severity == 'ERROR':
+            print(f'{t} ERROR {self.meter_id} {self.url[9:]} {logstring}')
+        elif severity == 'WARN':
+            print(f'{t} WARN {self.meter_id} {self.url[9:]} {logstring}')
+        elif severity == 'INFO':
+            print(f'{t} INFO {self.meter_id} {self.url[9:]} {logstring}')
+        elif severity == 'DEBUG':
+            print(f'{t} DEBUG {self.meter_id} {self.url[9:]} {logstring}')
 
 
-debug = False
+def main(meter):
+    """
+    Query the meter
+    """
+    t = datetime.datetime.now().strftime('%d-%m-%y %H:%M:%S')
+    try:
+        m = MyMeter(timeout=10, **meter)
+    except Exception as e:
+        print(f"{t} '{e}'")
+        sys.exit(1)
 
-
-def debuglog(*args):
-    if debug:
-        print("DEBUG:", *args)
-
-
-SOH = b'\x01'
-STX = b'\x02'
-ETX = b'\x03'
-ACK = b'\x06'
-LF = b'\n'
-
-CTLBYTES = SOH + STX + ETX
-
-
-def drop_ctl_bytes(data):
-    """Removes the standard delimiter bytes from the (response) data"""
-    return bytes(filter(lambda b: b not in CTLBYTES, data))
-
-
-"""
-
-HHU:    /?!<CR><LF>                         # Request message
-Meter:  /MCS5\@V0050710000051<CR><LF>       # Identification message
-HHU:    <ACK>051<CR><LF>                    # Acknowledgement/Option Select message (programing mode)
-Meter:  <SOH>P0<STX>(00000001)<ETX><BCC>    # Programing command message (00000001 - meter serial #)
-HHU:    <SOH>P1<STX>(00000000)<ETX><BCC>    # Programing command message (00000000 - meter BCD password)
-Meter:  <ACK>                               # Acknowledge message
-HHU:    <SOH>W1<STX>S0G(01FF)<ETX><BCC>     # Set output
-Meter:  <ACK>                               # Acknowledge message
-HHU:    <SOH>B0<ETX><BCC>                   # Programing command message
-
-"""
-
-class Meter:
-    # def __init__(self, port, timeout, meter_name):
-    def __init__(self, port, timeout, readout_list=False, manufacturer='EMH'):
-        self.port = port
-        self.timeout = timeout
-        self.manufacturer = manufacturer
-        if readout_list == '?':
-            readout_list = '1'
-        self.readout_list = readout_list
-        # self.meter_name = meter_name.encode()
-
-    def __enter__(self):
-        debuglog("Opening connection")
-        self.ser = serial.serial_for_url(self.port,
-                                         baudrate=300,
-                                         bytesize=serial.SEVENBITS,
-                                         parity=serial.PARITY_EVEN,
-                                         timeout=self.timeout)
-        time.sleep(3)
-        # self.id = self.sendcmd(b'/?' + self.meter_name + b'!\r\n', etx=LF)
-        if not self.readout_list:
-            self.id = self.sendcmd(b'/?!\r\n', etx=LF)
-        else:
-            self.id = self.sendcmd(b'/' + self.readout_list.encode() + b'!\r\n', etx=LF)
-        return self
-
-    def __exit__(self, exc_type, exc_value, traceback):
-        debuglog("Closing connection")
-        self.ser.close()
-
-    def sendcmd(self, cmd, data=None, etx=ETX):
-        if data:
-            cmdwithdata = cmd + STX + data + ETX
-            cmdwithdata = SOH + cmdwithdata + bcc(cmdwithdata)
-        else:
-            cmdwithdata = cmd
-        while True:
-            debuglog("Sending {}".format(cmdwithdata))
-            self.ser.write(cmdwithdata)
-            r = self.ser.read_until(etx)
-            debuglog("Received {} bytes: {}".format(len(r), r))
-            if len(etx) > 0 and r[-1:] == etx:
-                if etx == ETX:
-                    bcbyte = self.ser.read(1)
-                    debuglog("Read BCC: {}".format(bcbyte))
-                return r
-            debuglog("Retrying...")
-            time.sleep(2)
-
-    def sendcmd_and_decode_response(self, cmd, data=None):
-        response = self.sendcmd(cmd, data)
-        debuglog('-' * 40)
-        debuglog('Cmd:', cmd)
-        if data:
-            debuglog('Data:', data)
-        debuglog('Response:', response)
-        decoded_response = drop_ctl_bytes(remove_parity_bits(response)).decode()
-        debuglog('Decoded response:', decoded_response)
-        debuglog('-' * 40)
-        return decoded_response
-
+    data_id = meter['data_id']
+    
+    print(f'{t} DEBUG data_id = {data_id} {meter}')
+    if data_id == 'list4':
+        m.readList(list_number=data_id, use_meter_id=True)
+    elif data_id == 'p01':
+        m.readLoadProfile(profile_number='1', use_meter_id=True)
+    else:
+        print(f'{t} WARN Unknown data_id = {data_id}')
+        sys.exit(1)
 
 myname = os.path.basename(__file__)
 
@@ -187,4 +135,28 @@ else:
 
 
 # python3 single.py --password 12345678 socket://10.224.70.69:8000 --command R5 --data "0.0.0()" --debug
-# pw - 00000000/12345678        
+# pw - 00000000/12345678
+
+
+"""{
+    'id': 1, 
+    'melo': 'some_uuid', 
+    'description': 'Some description', 
+    'manufacturer': 'Metcom', 
+    'installation_date': None, 
+    'is_active': True, 
+    'meter_id': 'some id', 
+    'ip_address': '192.168.135.5', 
+    'port': 8000, 
+    'voltagefactor': 1100, 
+    'currentfactor': 200, 
+    'org': 'Baasem', 
+    'guid': None, 
+    'source': None, 
+    'password': None, 
+    'use_password': False, 
+    'timezone': 'CET', 
+    'p01': 900, 'p02': 0, 'list1': 0, 'list2': 0, 'list3': 0, 'list4': 0, 'p98': 0, 
+    'last_run': 0
+    }
+    """

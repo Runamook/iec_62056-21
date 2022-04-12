@@ -88,7 +88,7 @@ class Meter:
     CTLBYTES = SOH + STX + ETX
 
     # Tr = 2.2      # Tr should be 2.2 seconds, but some meters respond longer
-    Tr = 3
+    Tr = 4
     Inactivity_timeout = 60  # 60 - 120s 62056-21 Annex A, note 1
 
     def __init__(self, timeout: int = 300,  **meter):
@@ -98,10 +98,12 @@ class Meter:
         self.ser = None
         self.manufacturer = meter['manufacturer'].lower()
         self.meter_id = meter["meter_id"]
+        self.use_meter_id = meter['use_id']
         self.password = meter.get('password') or None
         self.password_type = meter.get('password_type') or 'utility'
         tz = meter.get('timezone') or 'CET'
         self.timezone = pytz.timezone(tz)
+        self.p01_from = meter.get('p01_from') or None
         self._connect()
 
     def log(self, severity, logstring):
@@ -119,14 +121,13 @@ class Meter:
             self.log('WARN', 'Unable to establish TCP connection')
             sys.exit(0)
 
-    def _request(self, use_meter_id: bool = False):
+    def _request(self):
         """
         Send request message (6.3.1), return identification message (6.3.2) received from meter
         HHU: /?12345678!<CR><LF>
         Meter: /MCS5\@V0050710000051<CR><LF>
         """
-
-        if use_meter_id:
+        if self.use_meter_id:
             cmd = f'/?{self.meter_id}!\r\n'.encode()
         else:
             cmd = b'/?!\r\n'
@@ -151,14 +152,21 @@ class Meter:
         if len(id_message) < 14:
             self.log('ERROR', f'Incorrect id_message "{str(id_message.encode())}"')
             sys.exit(1)
-        quick_tr = False
-        manufacturer = id_message[1:4]
-        if manufacturer[-1].islower():
-            # Device supports Tr timer 20ms
-            quick_tr = True
-        baud_rate = self.BAUD_RATES[id_message[4]]
-        communication_id = id_message[7:-2]
-        self.log('DEBUG', f'Manufacturer: {manufacturer}, 20ms Tr support: {quick_tr}, baud rate: {baud_rate}, communication ID: {communication_id}')
+        try:
+            quick_tr = False
+            manufacturer = id_message[1:4]
+            if manufacturer[-1].islower():
+                # Device supports Tr timer 20ms
+                quick_tr = True
+            if self.BAUD_RATES.get(id_message[4]):
+                baud_rate = self.BAUD_RATES[id_message[4]]
+            else:
+                baud_rate = 'Unknown'
+            communication_id = id_message[7:-2]
+            self.log('DEBUG', f'Manufacturer: {manufacturer}, 20ms Tr support: {quick_tr}, baud rate: {baud_rate}, communication ID: {communication_id}')
+        except Exception as e:
+            self.log('ERROR', f'ID {id_message} parsing error: "{e}"')
+            return
 
     def _ackOptionSelect(self, data_readout_mode: bool = True):
         """
@@ -239,11 +247,16 @@ class Meter:
                         # self.log('DEBUG', f'ETX found, received {result}')
                         self.log('DEBUG', f'Meter -> HHU: {result}')
                         return result
+                    
+                    if len(result) == 1 and result[-1:] == self.NAK:
+                        self.log('DEBUG', f'Meter -> HHU: {result}')
+                        return result
+
                     # If the last is read byte not ETX - wait for more data
                     if time.time() - tic > Meter.Tr:
                         # No more data for the Tr timer, assuming end of transmission
                         # self.log('DEBUG', f'Tr timeout reached ({self.Tr} seconds), received: "{result}"')
-                        self.log('DEBUG', f'result[-2:-1] = {result[-2:-1]}; result[-1:] = {result[-1:]}, etx = {etx}')
+                        # self.log('DEBUG', f'result[-2:-1] = {result[-2:-1]}; result[-1:] = {result[-1:]}, etx = {etx}')
                         self.log('DEBUG', f'Meter -> HHU (Tr = {self.Tr}): "{result}"')
                         if len(result) < 1:
                             self.ser.close()
@@ -259,6 +272,11 @@ class Meter:
             Send data to the meter, decode the response and return the result
         """
         response = self._sendcmd(cmd, data, etx=etx, check_bcc=check_bcc)
+        if response == Meter.NAK:
+            # Try one retransmit
+            self.log('WARN', f'{response} received, retransmitting')
+            response = self._sendcmd(cmd, data, etx=etx, check_bcc=check_bcc)
+            
         self.data = Meter.drop_ctl_bytes(Meter.remove_parity_bits(response)).decode("ascii")
         self.log('DEBUG', self.data)
         return self.data
@@ -278,7 +296,7 @@ class Meter:
         """Computes the BCC (block check character) value"""
         return bytes([functools.reduce(operator.xor, data, 0)])
 
-    def readList(self, use_meter_id: bool = False, list_number: str = '?'):
+    def readList(self, list_number: str = '?'):
         """
         HHU: /?12345678!<CR><LF>
         Meter: /MCS5\@V0050710000051<CR><LF>
@@ -299,7 +317,6 @@ class Meter:
                 1-0:1.8.1(123.34kWh)<CR><LF>
        TODO: there should be some check if a MetCom meter should be treated some other way
 
-        :param use_meter_id: boolean if a query should be sent as /?<meter_id>!\r\n ot /?!\r\n
         :param list_number: one of ['1', '2', '3', '4', 'list1', 'list2', 'list3', 'list4']
         :return: meter response
 
@@ -317,7 +334,7 @@ class Meter:
             self.log('ERROR', f'List {list_number} not implemented')
             sys.exit(1)
 
-        if use_meter_id:
+        if self.use_meter_id:
             cmd = f'/{list_number}{self.meter_id}!\r\n'.encode()
         else:
             cmd = f'/{list_number}!\r\n'.encode()
@@ -339,7 +356,7 @@ class Meter:
             self.log('ERROR', e)
             sys.exit(1)
 
-    def readLoadProfile(self, profile_number, use_meter_id: bool = False):
+    def readLoadProfile(self, profile_number):
         """
         P.01 or others
         """
@@ -347,7 +364,7 @@ class Meter:
         # -> Meter: /?{meter_id}!<CR><LF>
         # Meter ->: Smth like /MCS5\@V0050710000051<CR><LF>
 
-        self._request(use_meter_id)
+        self._request()
 
         # -> Meter: <ACK>051<CR><LF>
         # Meter ->: <SOH>P0<STX>(00000001)<ETX><BCC>
@@ -405,8 +422,20 @@ class Meter:
         # - Meter will respond from that time till the end requested
         
         now = datetime.datetime.now(self.timezone)
-        before = now - datetime.timedelta(minutes=90)
-        # t_to = f"0{now.strftime('%y%m%d%H%M')}"
+
+        if self.p01_from:
+            # P01 was queried before. Field format = "2022-04-12T21:59:15+03:00"
+            from_ts = datetime.datetime.strptime(self.p01_from, '%Y-%m-%dT%H:%M:%S%z')
+            self.log('DEBUG', f'P01_from: "{self.p01_from}": {from_ts}')
+            ninty_min_ago = now - datetime.timedelta(minutes=90)
+            if from_ts > ninty_min_ago:
+                before = ninty_min_ago
+            else:
+                before = from_ts
+        else:
+            # P01 was not queried before
+            before = now - datetime.timedelta(minutes=90)
+
         t_from = f"0{before.strftime('%y%m%d%H%M')}"
 
         # data = f'P.0{profile_number}({t_from};{t_to})'.encode()
@@ -420,6 +449,8 @@ class Meter:
             self.log('WARN', f'Meter responded with error: {result}')
             sys.exit(1)
         else:
+
+            # TODO: Somehow report that the query was successful
             return result
 
     def check_for_error(self, string):
