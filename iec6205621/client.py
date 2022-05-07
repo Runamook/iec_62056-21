@@ -1,4 +1,4 @@
-from curses.ascii import ACK
+# from curses.ascii import ACK
 import serial
 import time
 import functools
@@ -7,6 +7,10 @@ from serial.serialutil import SerialException
 import sys
 import datetime
 import pytz
+
+
+# TODO: Each function shall return {data: data, error_code: 1, error_text: asd}, the `library user shall decide wheather to terminate the flow. In other words - lib shall return object
+
 
 
 def normalize_log(logstring: bytes):
@@ -356,53 +360,63 @@ class Meter:
             self.log('ERROR', e)
             sys.exit(1)
 
-    def readLoadProfile(self, profile_number):
+    def send_password(self):
+        # -> Meter: <SOH>P1<STX>({password})<ETX><BCC>  
+        # Meter ->: <ACK>
+        
+        if self.password_type == 'utility':
+            # P1 - utility-password
+            cmd = b'P1'
+        elif self.password_type == 'manufacturer':
+            # P2 - manufacturer-password
+            cmd = b'P2'
+        else:
+            self.log('WARN', f'Password usage requested but the type "{self.password_type}" is unknown. Use "utility"/"manufacturer"')
+
+        data = f'({self.password})'.encode()
+        # <SOH>P1<STX>(00000000)<ETX><BCC>
+        result = self._sendcmd_and_decode_response(cmd, data, etx=Meter.ACK, check_bcc=False)
+        if result.encode() == self.NAK:
+            # TODO: retransmit on <NAK>
+            self.log('WARN', f'<NAK> received: {result}, terminating')
+            sys.exit(1)
+
+        if result == 'B0':
+            self.log('WARN', f'{result} received, check password. Terminating')
+            sys.exit(1)
+
+        if result.encode() != self.ACK:
+            self.log('WARN', f'<ACK> expected, returned {result}, terminating')
+            sys.exit(1)
+
+        return
+
+    def rw_register(self, cmd, data=None):
         """
-        P.01 or others
+        Unfinished, unused.
+        Should be updated to arbitrary read (write) registers
         """
-
-        # -> Meter: /?{meter_id}!<CR><LF>
-        # Meter ->: Smth like /MCS5\@V0050710000051<CR><LF>
-
-        self._request()
-
-        # -> Meter: <ACK>051<CR><LF>
-        # Meter ->: <SOH>P0<STX>(00000001)<ETX><BCC>
-        self._ackOptionSelect(data_readout_mode=False)
-
-        # Use password
         if self.password:
             # -> Meter: <SOH>P1<STX>({password})<ETX><BCC>  
             # Meter ->: <ACK>
-            
-            # TODO: correctly determine the response by ACK, not by timeout
+            self.send_password()
+        # TODO: Check and finish
+        self._sendcmd_and_decode_response(cmd, data)
+        return
 
-            if self.password_type == 'utility':
-                # P1 - utility-password
-                cmd = b'P1'
-            elif self.password_type == 'manufacturer':
-                # P2 - manufacturer-password
-                cmd = b'P2'
-            else:
-                self.log('WARN', f'Password usage requested but the type "{self.password_type}" is unknown. Use "utility"/"manufacturer"')
+    def check_for_error(self, string):
+        if '(ERROR' in string:
+            if self.manufacturer == 'emh':
+                return
 
-            data = f'({self.password})'.encode()
+    #def readLoadProfile_new(self, profile_number):
+    def readLoadProfile(self, profile_number):
+        """
+        P.01 or others
 
-            # <SOH>P1<STX>(00000000)<ETX><BCC>
-            result = self._sendcmd_and_decode_response(cmd, data, etx=Meter.ACK, check_bcc=False)
-            if result.encode() == self.NAK:
-                # TODO: retransmit on <NAK>
-                self.log('WARN', f'<NAK> received: {result}, terminating')
-                sys.exit(1)
-
-            if result == 'B0':
-                self.log('WARN', f'{result} received, check password. Terminating')
-                sys.exit(1)
-
-
-            if result.encode() != self.ACK:
-                self.log('WARN', f'<ACK> expected, returned {result}, terminating')
-                sys.exit(1)
+        param: profile_number - str: 1, 2
+        Creates cmd and data structures, then invokes send_to_meter(cmd, data)
+        """
 
         # Grab the last 30 minutes
 
@@ -442,9 +456,35 @@ class Meter:
         data = f'P.0{profile_number}({t_from};)'.encode()
         cmd = b'R5'
 
-        # -> Meter: <SOH>R5<STX>P.01(01808130001;01808191600)<ETX><BCC>
-        # Meter ->: Data
-        result = self._sendcmd_and_decode_response(cmd, data)
+        return self.send_to_meter(in_cmd=cmd, in_data=data)
+
+    def send_to_meter(self, in_cmd: bytes, in_data: bytes):
+        """
+        Send sequence of messages to the meter, depending on the instance attributes.
+
+        TODO: Modify P.01 readout so it calculates the time and then uses this method - readLoadProfile_new
+
+        Example final command: <SOH>W5<STX>0.9.2(0171021)(00000000)<ETX><BCC>
+        cmd = 'W5'
+        data = '0.9.2(0171021)(00000000)'
+
+        """
+
+        # HHU -> Meter: /?{meter_id}!<CR><LF>
+        # Meter -> HHU: /MCS5\@V0050710000051<CR><LF>
+
+        self._request()
+
+        # HHU -> Meter: <ACK>051<CR><LF>
+        # Meter -> HHU: <SOH>P0<STX>(00000001)<ETX><BCC>
+        self._ackOptionSelect(data_readout_mode=False)
+
+        if self.password:
+            self.send_password()
+
+        # HHU -> Meter: <SOH>R5<STX>P.01(01808130001;01808191600)<ETX><BCC>
+        # Meter -> HHU: Data
+        result = self._sendcmd_and_decode_response(cmd=in_cmd, data=in_data)
         if '(ERROR' in result:
             self.log('WARN', f'Meter responded with error: {result}')
             sys.exit(1)
@@ -452,12 +492,6 @@ class Meter:
 
             # TODO: Somehow report that the query was successful
             return result
-
-    def check_for_error(self, string):
-        if '(ERROR' in string:
-            if self.manufacturer == 'emh':
-                return
-
 
 
 """<SOH>R5<STX>P.98(01808130001;01808191600)<ETX><BCC>

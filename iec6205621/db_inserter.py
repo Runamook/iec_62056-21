@@ -216,7 +216,8 @@ class R2PG:
         EXECUTE m('1', to_timestamp('1611263296'), '1', '123');
         EXECUTE m('1', to_timestamp('1611263297'), '1', '123');
         """
-        self.logger.debug(f'{len(data)} objects to insert')
+        if len(data) > 0:
+            self.logger.debug(f'{len(data)} objects to insert')
         if len(data) == 0:
             return
         queries = []
@@ -239,6 +240,9 @@ class R2PG:
                 if received_obis not in self.obis_cache:
                     # Try updating DB/Cache
                     self.logger.error(f'OBIS {received_obis} not found in OBIS cache, skipping')
+                    if received_obis.endswith('P.01'):
+                        # TODO: в _add_obis не работает continue
+                        continue
                     if not self._add_obis(received_obis):
                         continue
 

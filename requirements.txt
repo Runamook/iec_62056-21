@@ -4,3 +4,5 @@ redis
 psycopg2-binary
 pyserial
 pytz
+windpowerlib
+pandas

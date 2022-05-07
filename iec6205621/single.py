@@ -3,7 +3,7 @@
 import argparse
 import os
 import sys
-import iec6205621.client as client
+import client
 import datetime
 
 
@@ -52,16 +52,32 @@ def main(meter):
         print(f"{t} '{e}'")
         sys.exit(1)
 
-    data_id = meter['data_id']
-    
-    print(f'{t} DEBUG data_id = {data_id} {meter}')
-    if data_id == 'list4':
-        m.readList(list_number=data_id, use_meter_id=True)
-    elif data_id == 'p01':
-        m.readLoadProfile(profile_number='1', use_meter_id=True)
+    if meter.get('data_id'):
+        # Data_id is defined - user requested a particular data set 
+        data_id = meter['data_id']
+        
+        print(f'{t} DEBUG data_id = {data_id} {meter}')
+
+        if data_id == 'list4':
+            m.readList(list_number=data_id)
+        elif data_id == 'list2':
+            m.readList(list_number=data_id)      
+        elif data_id == 'list3':
+            m.readList(list_number=data_id)                      
+        elif data_id == 'list4':
+            m.readList(list_number=data_id)            
+        elif data_id == 'p01':
+            m.readLoadProfile_new(profile_number='1')
+        else:
+            print(f'{t} WARN Unknown data_id = {data_id}')
+            sys.exit(1)
     else:
-        print(f'{t} WARN Unknown data_id = {data_id}')
-        sys.exit(1)
+        # Unknown data_id - go one by one
+        if meter.get('cmd'):
+            cmd = meter.get('cmd').encode()
+        if meter.get('data'):
+            data = meter.get('data').encode()
+        m.send_to_meter(cmd, data)
 
 myname = os.path.basename(__file__)
 
@@ -73,21 +89,12 @@ examples = """
 Examples:
 
     # Read the date from the meter
-    python3 {0} socket://10.124.2.120:8000 R5 "0.9.2()"
-
-    # Read the clock from the meter
-    python3 {0} socket://10.124.2.120:8000 R5 "0.9.1()"
-
-    # Read the clock from the meter and see how it works
-    python3 {0} --debug socket://10.124.2.120:8000 R5 "0.9.1()"
-
-    # Read the load profile since 2019-04-30 00:00
-    python3 {0} socket://10.124.2.34:8000 R5 "P.01(11904300000;)"
-    
-    # Set output
-    python3 {0} --password 00000000 socket://10.124.2.34:8000 W1 "S0G(0300)"
+    python3 {0} socket://10.224.70.21:8000 --structure P01 --password 00000000
+    python3 {0} socket://10.224.70.21:8000 --cmd R5 --data "0.9.2(0171021)(00000000)" --password 00000000
 
 """.format(myname)
+#    python3 {0} 10.224.70.21 --structure P01 --password 00000000
+#    python3 {0} 10.224.70.21 --structure P01 --password 00000000
 
 parser = argparse.ArgumentParser(
     description=description,
@@ -95,68 +102,98 @@ parser = argparse.ArgumentParser(
     formatter_class=argparse.RawDescriptionHelpFormatter
 )
 
-parser.add_argument('--debug', action='store_true',
-                    help='Enable debugging output')
-parser.add_argument('--timeout', default=None, type=float,
-                    help='Data readout timeout value in seconds (default: disabled)')
 parser.add_argument('--password', default=None, type=str,
                     help='Password for the meter (default: Not used)')
-parser.add_argument('--list', default=False, type=str,
-                    help='List number for data readout mode, can be \'1\', \'2\' or \'3\'')
-parser.add_argument('--command', default=None, type=str,
-                    help='Command to send to the meter')
+parser.add_argument('--id', default=None, type=str,
+                    help='Meter id (default: None)')
+#parser.add_argument('--port', default=8000, type=int, help='Meter port')
+#parser.add_argument('host', help='Meter IP address')
+parser.add_argument('--structure', default=None, type=str,
+                    help='Read the structure - P01, list1, list2 etc.')
 parser.add_argument('--data', default=None, type=str,
-                    help='Command data to send to the meter')
-parser.add_argument('device', help='Meter address in socket://host:port format')
+                    help='W5')
+parser.add_argument('--cmd', default=None, type=str,
+                    help='0.9.2(0171021)(00000000)')
+parser.add_argument('socket', default='socket://10.224.70.21:8000', type=str, help='Meter socket')
 # parser.add_argument('meterid', help='Meter id')
 args = parser.parse_args()
 
+'''
 debug = args.debug
 if args.command:
     cmd = args.command.encode()
 if args.data:
     data = args.data.encode()
+'''
 # meter_name = args.meterid
 
-
-# with Meter(args.device, args.timeout, meter_name) as meter:
-if args.list:
-    with Meter(args.device, args.timeout, args.list) as meter:
-        print(meter.sendcmd_and_decode_response(ACK + b'051\r\n'))
-else:
-    with Meter(args.device, args.timeout) as meter:
-        # meter.sendcmd_and_decode_response(ACK + b'041\r\n')
-        meter.sendcmd_and_decode_response(ACK + b'051\r\n')
-        meter.ser.baudrate = 4800
-        if args.password:
-            password = args.password.encode()
-            meter.sendcmd_and_decode_response('P1'.encode(), password)
-        print(meter.sendcmd_and_decode_response(cmd, data))
-
-
-# python3 single.py --password 12345678 socket://10.224.70.69:8000 --command R5 --data "0.0.0()" --debug
-# pw - 00000000/12345678
-
-
-"""{
-    'id': 1, 
-    'melo': 'some_uuid', 
-    'description': 'Some description', 
+m = {
+    'id': 23, 
+    'melo': None, 
+    'description': 'Test meter with password', 
     'manufacturer': 'Metcom', 
     'installation_date': None, 
     'is_active': True, 
-    'meter_id': 'some id', 
-    'ip_address': '192.168.135.5', 
+    'meter_id': None, 
+    'use_id': False, 
+    'ip_address': '10.224.70.21', 
     'port': 8000, 
-    'voltagefactor': 1100, 
-    'currentfactor': 200, 
-    'org': 'Baasem', 
+    'org': 'Acteno', 
     'guid': None, 
     'source': None, 
-    'password': None, 
-    'use_password': False, 
+    'password': '00000000', 
     'timezone': 'CET', 
-    'p01': 900, 'p02': 0, 'list1': 0, 'list2': 0, 'list3': 0, 'list4': 0, 'p98': 0, 
-    'last_run': 0
+    'p01_from': None, 
+    'p01': 45, 
+    'p02': 0, 
+    'list1': 0, 
+    'list2': 0, 
+    'list3': 0, 
+    'list4': 0, 
+    'p98': 0,
+    'data':None,
+    'cmd':None,
+    'data_id': None
     }
-    """
+ 
+try:
+    sock = args.socket.split(':')
+    m['port'] = sock[2]
+    m['ip_address'] = sock[1].strip('/')
+except Exception as e:
+    print(f'\nERROR: Unable to parse provided socket: "{args.socket}"\nPlease define it as "socket://IP:port"\n\n')
+    sys.exit(1)
+
+
+if args.host:
+    m['ip_address'] = args.host
+if args.port:
+    m['port'] = args.port
+
+    
+if args.password:
+    m['password'] = args.password
+else:
+    m['password'] = None
+if args.id:
+    m['meter_id'] = args.id
+    m['use_id'] = True
+else:
+    m['meter_id'] = None
+    m['use_id'] = False
+if args.structure:
+    m['data_id'] = args.structure.lower()
+if args.data:
+    m['data'] = args.data
+if args.cmd:
+    m['cmd'] = args.cmd
+
+if m['data_id'] == None and m['cmd'] == None:
+    print(f'\nERROR, no query defined\n\nPlease use --structure or --data\n')
+    sys.exit(1)
+
+if __name__ == '__main__':
+    main(m)
+# python3 single.py --password 12345678 socket://10.224.70.69:8000 --command R5 --data "0.0.0()" --debug
+# pw - 00000000/12345678
+

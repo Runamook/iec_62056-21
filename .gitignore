@@ -132,4 +132,7 @@ dmypy.json
 # Other
 *.gz
 *.zip
+*.tgz
 *.ini
+Single_original/
+get_wind.py

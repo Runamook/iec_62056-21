@@ -87,18 +87,17 @@ class MyMeter(client.Meter):
 class MeterDB:
 
     def __init__(self, system_logger, **config):
-       
+        
+        self.logger = system_logger
         pg_user = config.get('pg_user') or 'postgres'
         pg_password = config.get('pg_pass') or 'postgres'
         pg_host = config.get('pg_host') or 'localhost'
         pg_db = config.get('pg_db') or 'postgres'
-        pg_schema = config.get('pg_schema') or 'meters'
+        self.pg_schema = config.get('pg_schema') or 'meters'
 
         db_name = f'postgresql://{pg_user}:{pg_password}@{pg_host}/{pg_db}'
         log_db_name = f'postgresql://{pg_user}:********@{pg_host}/{pg_db}'
 
-        self.logger = system_logger
-        self.pg_schema = pg_schema
 
         try:
             engine = sqlalchemy.create_engine(db_name)
@@ -185,7 +184,7 @@ def process_data(meter, logger, data_id, db=None):
         sys.exit(1)
 
     logger.debug(f'data_id = {data_id} {meter}')
-    if data_id == 'list4':
+    if data_id in ['list1', 'list2', 'list3', 'list4']:
         raw_data = m.readList(list_number=data_id)
     elif data_id == 'p01':
         raw_data = m.readLoadProfile(profile_number='1')
@@ -208,8 +207,9 @@ def process_data(meter, logger, data_id, db=None):
         meter_ts = [meter["org"].lower(), meter_id, int(time.time())]
         inserter = i.Inserter(logger=logger, meter_ts=meter_ts)
         if inserter.insert(parsed_data):
-            # All good - unset p01_from field in SQL meter profile
-            db.update_p01(meter_id, action='delete')
+            if data_id == 'p01':
+                # All good - unset p01_from field in SQL meter profile
+                db.update_p01(meter_id, action='delete')
     else:
         logger.debug(f'{meter_id} nothing to insert')
     return
@@ -261,7 +261,7 @@ def main(config_file):
     data_id = config['DEFAULT']['data_id'].lower()
 
     last_runs = dict()
-    db = MeterDB(logger, config=config['DB'])
+    db = MeterDB(logger, **config['DB'])
 
     while True:
 
