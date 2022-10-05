@@ -1,3 +1,4 @@
+import logging
 from redis import Redis
 import json
 
@@ -8,7 +9,7 @@ class Inserter:
         self.host = host
         self.port = port
         self.meter_id = meter_ts[1]
-        self.meter_ts = f'{meter_ts[0]}:{self.meter_id}_{meter_ts[2]}' # org:meterId_ts
+        self.meter_ts = f'{meter_ts[0]}:{self.meter_id}_{meter_ts[2]}:{meter_ts[3]}' # org:meterId_ts:data_id
 
     def insert(self, data):
         return self.redis_insert(data)

@@ -6,3 +6,4 @@ pyserial
 pytz
 windpowerlib
 pandas
+requests

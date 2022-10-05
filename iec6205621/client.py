@@ -96,6 +96,7 @@ class Meter:
     Inactivity_timeout = 60  # 60 - 120s 62056-21 Annex A, note 1
 
     def __init__(self, timeout: int = 300,  **meter):
+        self.result_obj = {'data': None, 'error_code': None, 'error_text': None }
         self.url = f'socket://{meter["ip_address"]}:{meter["port"]}'
         self.timeout = timeout
         self.data = None
@@ -113,6 +114,18 @@ class Meter:
     def log(self, severity, logstring):
         print(f'{severity}, {logstring}')
 
+    def _mod_result_obj(self, code: int, text: str, data=None):
+        """
+        Tries to modify result_obj
+        """
+        self.result_obj['error_text'] = text
+        self.result_obj['error_code'] = code
+        if data:
+            if self.result_obj.get('data'):
+                self.log('WARN', f'"result_obj.data" = {self.result_obj["data"]}, modifying to "{data}"')
+                self.result_obj['data'] = data
+
+
     def _connect(self):
         try:
             self.ser = serial.serial_for_url(self.url,
@@ -123,6 +136,7 @@ class Meter:
             self.log('DEBUG', f'Connected to {self.url}, timeout = {self.timeout}')
         except SerialException:
             self.log('WARN', 'Unable to establish TCP connection')
+            self._mod_result_obj(1, 'Unable to establish TCP connection')
             sys.exit(0)
 
     def _request(self):
@@ -146,15 +160,18 @@ class Meter:
 
         except Exception as e:
             self.log('ERROR', e)
+            self._mod_result_obj(1, e)
             sys.exit(1)
         if 'B0' in id_message:
-            self.log('WARN', 'Meter ended communication')
+            self.log('WARN', 'Meter ended communication with B0')
+            self._mod_result_obj(1, 'Meter ended communication with B0')
             sys.exit(1)
         self._parse_id_message(id_message)
 
     def _parse_id_message(self, id_message):
         if len(id_message) < 14:
             self.log('ERROR', f'Incorrect id_message "{str(id_message.encode())}"')
+            self._mod_result_obj(1, f'Incorrect id_message "{str(id_message.encode())}"')
             sys.exit(1)
         try:
             quick_tr = False
@@ -265,10 +282,12 @@ class Meter:
                         if len(result) < 1:
                             self.ser.close()
                             self.log('ERROR', 'No data received')
+                            self._mod_result_obj(1, f'No data received')
                             sys.exit(1)
                         return result
         except Exception as e:
             self.log('ERROR', e)
+            self._mod_result_obj(1, e)
             sys.exit(1)
 
     def _sendcmd_and_decode_response(self, cmd, data=None, etx=ETX, check_bcc=True):
@@ -319,7 +338,7 @@ class Meter:
                 1-0:0.9.1(14:45:59)<CR><LF>
                 1-0:0.2.2(12345678)<CR><LF>
                 1-0:1.8.1(123.34kWh)<CR><LF>
-       TODO: there should be some check if a MetCom meter should be treated some other way
+        TODO: there should be some check if a MetCom meter should be treated some other way
 
         :param list_number: one of ['1', '2', '3', '4', 'list1', 'list2', 'list3', 'list4']
         :return: meter response
@@ -336,6 +355,7 @@ class Meter:
             list_number = '4'
         else:
             self.log('ERROR', f'List {list_number} not implemented')
+            self._mod_result_obj(1, f'List {list_number} not implemented')
             sys.exit(1)
 
         if self.use_meter_id:
@@ -346,6 +366,7 @@ class Meter:
             if self.manufacturer == 'metcom_new':
                 id_message = self._sendcmd(cmd, etx=self.LF).decode()
                 if 'B0' in id_message:
+                    self._mod_result_obj(1, 'Meter ended communication')
                     self.log('WARN', 'Meter ended communication')
                     sys.exit(1)
                 self._parse_id_message(id_message)
@@ -358,6 +379,7 @@ class Meter:
                 return self._sendcmd_and_decode_response(cmd)
         except Exception as e:
             self.log('ERROR', e)
+            self._mod_result_obj(1, e)
             sys.exit(1)
 
     def send_password(self):
@@ -382,10 +404,12 @@ class Meter:
             sys.exit(1)
 
         if result == 'B0':
+            self._mod_result_obj(1, f'{result} received, check password. Terminating')
             self.log('WARN', f'{result} received, check password. Terminating')
             sys.exit(1)
 
         if result.encode() != self.ACK:
+            self._mod_result_obj(1, f'<ACK> expected, returned {result}, terminating')
             self.log('WARN', f'<ACK> expected, returned {result}, terminating')
             sys.exit(1)
 
@@ -395,21 +419,15 @@ class Meter:
         """
         Unfinished, unused.
         Should be updated to arbitrary read (write) registers
+        # TODO: Check and finish
         """
         if self.password:
             # -> Meter: <SOH>P1<STX>({password})<ETX><BCC>  
             # Meter ->: <ACK>
             self.send_password()
-        # TODO: Check and finish
         self._sendcmd_and_decode_response(cmd, data)
         return
 
-    def check_for_error(self, string):
-        if '(ERROR' in string:
-            if self.manufacturer == 'emh':
-                return
-
-    #def readLoadProfile_new(self, profile_number):
     def readLoadProfile(self, profile_number):
         """
         P.01 or others
@@ -461,9 +479,6 @@ class Meter:
     def send_to_meter(self, in_cmd: bytes, in_data: bytes):
         """
         Send sequence of messages to the meter, depending on the instance attributes.
-
-        TODO: Modify P.01 readout so it calculates the time and then uses this method - readLoadProfile_new
-
         Example final command: <SOH>W5<STX>0.9.2(0171021)(00000000)<ETX><BCC>
         cmd = 'W5'
         data = '0.9.2(0171021)(00000000)'
@@ -486,11 +501,10 @@ class Meter:
         # Meter -> HHU: Data
         result = self._sendcmd_and_decode_response(cmd=in_cmd, data=in_data)
         if '(ERROR' in result:
+            self._mod_result_obj(1, f'Meter responded with error: {result}')
             self.log('WARN', f'Meter responded with error: {result}')
             sys.exit(1)
         else:
-
-            # TODO: Somehow report that the query was successful
             return result
 
 

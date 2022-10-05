@@ -148,7 +148,8 @@ class R2PG:
     def _get_data(self):
         """
         Get data from redis and return list of objects
-        :return:
+        Redis inserter inserts as: r.set(name=self.meter_ts, value=data)
+        :return: data
         """
         data = []
         try:
@@ -207,8 +208,8 @@ class R2PG:
     def _push_data(self, data):
         """
         Push data to PG
-        :param data: [(b'org:10179636_1611222547', [{'id': '0.0.0', 'value': '1', 'unit': None}, ... {}]) ... ()]
-        :param  data: OR [(b'org:10179636_1611222547', [{'id': '0.0.0', 'value': '1', 'unit': None, 'line_time': 'epoch'}, ... {}]) ... ()]
+        :param data: [(b'org:10179636_1611222547:wind', [{'id': '0.0.0', 'value': '1', 'unit': None}, ... {}]) ... ()]
+        :param  data: OR [(b'org:10179636_1611222547:p01', [{'id': '0.0.0', 'value': '1', 'unit': None, 'line_time': 'epoch'}, ... {}]) ... ()]
         :return:
 
         PREPARE m (int, timestamptz, int, varchar(40)) AS
@@ -222,7 +223,7 @@ class R2PG:
             return
         queries = []
         for meter_query_data in data:
-            # meter_query_data[0] = b'org:10179636_1611222547'
+            # meter_query_data[0] = b'org:10179636_1611222547:p01'
             meter_id, ts = meter_query_data[0].decode().split(':')[1].split('_')
             id = self.meter_cache[meter_id]
 

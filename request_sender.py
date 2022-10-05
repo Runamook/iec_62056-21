@@ -107,14 +107,17 @@ class MeterDB:
             self.logger.error(f'Error "{e}" while connecting to the DB {log_db_name}')
             
 
-    def update_p01(self, meter, action: str='set'):
+    def update_p01(self, meter, action: str='set', time_from=None):
         """
         Updates meter SQL profile with P01 request ts
         If request was successfull - reset the ts
         """
         self.logger.debug(f'{meter} P01 action = "{action}"')
 
-        now = f"to_timestamp(\'{datetime.datetime.now().strftime('%s')}\')"
+        if isinstance(time_from, datetime.datetime):
+            now = f"to_timestamp(\'{time_from.strftime('%s')}\')"
+        else:
+            now = f"to_timestamp(\'{datetime.datetime.now().strftime('%s')}\')"
 
         if action == 'set':
             query = f"UPDATE {self.pg_schema}.meters SET p01_from={now} WHERE meters.meter_id = '{meter}';"
@@ -166,16 +169,51 @@ class MeterDB:
             sys.exit(1)
 
 
-def process_data(meter, logger, data_id, db=None):
+def process_data(meter, logger: logging.Logger, data_id, db: MeterDB =None):
     """
     Query the meter, parse the data, push to pg
     """
     meter_id = meter['meter_id']
 
     if data_id == 'p01':
+
+
+        # p01_from not defined - request the latest X minutes 
+        # Meter object shall always have a p01_from attribute - either from DB or determined in runtime
         if not meter['p01_from']:
-            # Set p01_from field in SQL meter profile if not set
-            db.update_p01(meter_id, action='set')
+
+            if meter[data_id] > 900:
+                # P01 is queried less often than every 15 minutes
+                delta = meter[data_id] // 900 + 1
+                time_from = datetime.datetime.now() - datetime.timedelta(hours=delta)
+
+                # strftime %z doesn't work for no reason
+                # Hardcode CET timezone
+                # TODO: Fix
+                meter['p01_from'] = f"{time_from.strftime('%Y-%m-%dT%H:%M:%S%z')}+02:00"
+            else:
+                time_from = None
+            # Set p01_from field in SQL meter profile if not set            
+            db.update_p01(meter_id, action='set', time_from=time_from)
+            """    
+            1. Check p01_from
+            2. If too big - only query p01_from + 24 hours
+            3. Update p01_from - set it to p01_from + 24 hours
+            4. Repeat
+
+            Old try, delete:
+            
+            else:
+
+            max_days = 0
+            # If p01_from exists - check if it is too big
+            now = datetime.datetime.now()
+            p01_from_object = datetime.datetime.strptime(meter['p01_from'], '%Y-%m-%dT%H:%M:%S%z')
+            if (now - p01_from_object).days > max_days:
+                # The request field demands more than 24 hours query
+                time_from = p01_from_object
+                time_to = 
+            """
 
     try:
         m = MyMeter(logger=logger, timeout=10, **meter)
@@ -203,8 +241,8 @@ def process_data(meter, logger, data_id, db=None):
     # Push data somewhere
     if len(parsed_data) > 0:
 
-        # org 10067967 1649100604
-        meter_ts = [meter["org"].lower(), meter_id, int(time.time())]
+        # ['org', '10067967', 1649100604, 'p01']
+        meter_ts = [meter["org"].lower(), meter_id, int(time.time()), data_id]
         inserter = i.Inserter(logger=logger, meter_ts=meter_ts)
         if inserter.insert(parsed_data):
             if data_id == 'p01':

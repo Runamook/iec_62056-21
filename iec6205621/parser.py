@@ -39,6 +39,7 @@ class Parser:
         self.parsed_data = []
         self.data_type = data_type
         self.meter_id = meter['meter_id']
+        self.manufacturer = meter['manufacturer'].lower() or 'emh'
 
         self.timezone = meter.get('timezone') or 'CET'
         # self.timezone = pytz.timezone(tz)
@@ -272,6 +273,7 @@ class Parser:
 
             if line[0:4] in self.load_profiles:
                 # Parse header line
+                # Metcom
                 # [
                 #   'P.01', 
                 #   '1220403160000)', 
@@ -285,7 +287,13 @@ class Parser:
                 #   '1-0:7.5.0)', 'kvar)', 
                 #   '1-0:8.5.0)', 'kvar)'
                 # ]
-
+                # 
+                # EMH meter
+                # P.01(1220823161500)(00000000)(15)(6)(1.5)(kW)(2.5)(kW)(5.5)(kvar)(6.5)(kvar)(7.5)(kvar)(8.5)(kvar)
+                # P.01([z]YYMMDDhhmmss)(SSSSSSSS)(r)(k)(K1)(E1)..[(Kk)(Ek)](x...x)...[(y...y)]
+                # Or
+                # P.01(1221005001500)(00000000)(15)(8)(1-1:1.29)(kWh)(1-1:2.29)(kWh)(1-1:5.29)(kvarh)(1-1:6.29)(kvarh)(1-1:7.29)(kvarh)(1-1:8.29)(kvarh)(1-2:1.29)(kWh)(1-3:2.29)(kWh)^M
+                
                 line_number = 0
                 try:
                     line = line.split('(')
@@ -294,35 +302,60 @@ class Parser:
                     # Take meter TZ and make timestamp UTC
                     zsts13 = datetime.datetime.strptime(f"{line[1].strip(')')[1:]} {offset}", time_format)
 
-                    # '08)' => '00001000'
-                    # Bit
-                    # 7 PDN Power down
-                    # 6 RSV Reserved
-                    # 5 CAD Clock adjusted
-                    # 4 RSV Reserved
-                    # 3 DST Daylight saving
-                    # 2 DNV Data not valid
-                    # 1 CIV Clock invalid
-                    # 0 ERR Critical error
-                    s = format((int(line[2].strip(')'))), '08b')
+
+                    if self.manufacturer == 'metcom':
+                        # '08)' => '00001000'
+                        # Bit
+                        # 7 PDN Power down
+                        # 6 RSV Reserved
+                        # 5 CAD Clock adjusted
+                        # 4 RSV Reserved
+                        # 3 DST Daylight saving
+                        # 2 DNV Data not valid
+                        # 1 CIV Clock invalid
+                        # 0 ERR Critical error
+                        s = format((int(line[2].strip(')'))), '08b')
+                    else:
+                        # 'emh'
+                        # '00000000)'
+                        s =  line[2].strip(')')
 
                     # '15)'
                     rp = datetime.timedelta(minutes=int(line[3].strip(')')))
+
+                    # '6)' - amount of values in a line
                     z = int(line[4].strip(')'))
 
-                    if z != 6:
-                        self.log('WARN', f'6 values expected, {z} received. Update the parser code')
+                    if z != 6 and z != 8:
+                        self.log('WARN', f'Not expecting z other than 6 or 8, z={z} received. Update the parser code. {line}')
                         sys.exit(1)
                     
                     ids = list()
                     units = list()
                     
-                    for i in range(5,16,2):
-                       
-                        # '1-0:1.5.0)'
-                        # 'kW)'
-                        ids.append(line[i].strip().strip(')').split(':')[1])
-                        units.append(line[i+1].strip().strip(')'))
+
+                    # Values in line with index 0-4 are a constant prefix like
+                    # ['P.01', '1221002001500)', '00000000)', '15)', '8)',
+                    # Values with index 5+ are a variable key list like
+                    # '1-1:1.29)', 'kWh)', '1-1:2.29)', 'kWh)', '1-1:5.29)', 'kvarh)', '1-1:6.29)', 'kvarh)', '1-1:7.29)', 'kvarh)', '1-1:8.29)', 'kvarh)', '1-2:1.29)', 'kWh)', '1-3:2.29)', 'kWh)'
+                    if self.manufacturer == 'metcom':
+                        # z = 6 => range(5,16,2)
+                        # z = 8 => range(5,20,2)
+                        for i in range(5,4+z*2,2):
+                            # '1.5)'
+                            # 'kW)'
+                            ids.append(line[i].strip().strip(')').split(':')[1])
+                            units.append(line[i+1].strip().strip(')'))
+                    else:
+                        # 'emh'
+                        # z = 6 => range(5,16,2)
+                        # z = 8 => range(5,20,2)
+                        for i in range(5,4+z*2,2):
+                        
+                            # '1-0:1.5.0)'
+                            # 'kW)'
+                            ids.append(line[i].strip().strip(')'))
+                            units.append(line[i+1].strip().strip(')'))                        
 
                 except Exception as e:
                     self.log('ERROR', f'Exception "{e}" during P01 header parsing "{line}"')
@@ -331,6 +364,9 @@ class Parser:
                 try:
                     # Parse data line
                     # (0.00063)(0.00000)(0.00023)(0.00000)(0.00000)(0.00000)
+                    # or 
+                    # # (0.00000)(0.04088)(0.00000)(0.00358)(0.00000)(0.00000)(0.00000)(0.00000)
+
                     if len(line) < 2:
                         # self.log('DEBUG', f'Line "{line}" to short, skipping')
                         # Probably, end of message
@@ -338,11 +374,11 @@ class Parser:
 
                     line = line.split('(')
                     line.pop(0)
-                    if len(line) != 6:
-                        self.log('ERROR', f'Expected 6 values, found {len(line)} in line "{line}"')
+                    if len(line) != z:
+                        self.log('ERROR', f'Expected z={z} values, found {len(line)} in line "{line}"')
                         sys.exit(1)
 
-                    for i in range(6):
+                    for i in range(z):
                         parsed_line = {
                             'id': ids[i],
                             'value': line[i].strip().strip(')'),
