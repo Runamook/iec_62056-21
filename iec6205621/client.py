@@ -109,6 +109,7 @@ class Meter:
         tz = meter.get('timezone') or 'CET'
         self.timezone = pytz.timezone(tz)
         self.p01_from = meter.get('p01_from') or None
+        self.p98_from = meter.get('p98_from') or None
         self._connect()
 
     def log(self, severity, logstring):
@@ -321,6 +322,8 @@ class Meter:
 
     def readList(self, list_number: str = '?'):
         """
+        Reads a list/table # from the meter
+
         HHU: /?12345678!<CR><LF>
         Meter: /MCS5\@V0050710000051<CR><LF>
         HHU: <ACK>051<CR><LF>
@@ -338,7 +341,6 @@ class Meter:
                 1-0:0.9.1(14:45:59)<CR><LF>
                 1-0:0.2.2(12345678)<CR><LF>
                 1-0:1.8.1(123.34kWh)<CR><LF>
-        TODO: there should be some check if a MetCom meter should be treated some other way
 
         :param list_number: one of ['1', '2', '3', '4', 'list1', 'list2', 'list3', 'list4']
         :return: meter response
@@ -381,6 +383,71 @@ class Meter:
             self.log('ERROR', e)
             self._mod_result_obj(1, e)
             sys.exit(1)
+
+    def _readLog(self, log_type: str='P.98'):
+        """
+        Read logbook
+
+        HHU:        /?!<CR><LF>
+        Meter:      /MCS5\@V0050710000051<CR><LF>
+        HHU:        <ACK>051<CR><LF>
+        Meter:      <SOH>P0<STX>(00000001)<ETX><BCC>
+        HHU:        <SOH>P1<STX>(00000000)<ETX><BCC>
+        Meter:      <ACK>
+        HHU:        <SOH>R5<STX>P.98(01808130001;01808191600)<ETX><BCC>
+        Meter:      <STX>P.98(0180813152310)(00)()(2)(91.11.0)()(91.11.10)()(1)(0) <CR><LF>
+                    P.98(0180813161205)(00)()(2)(91.11.0)()(91.11.10)()(2)(0) <CR><LF>
+                    P.98(0180814110004)(00)()(2)(91.11.0)()(91.11.10)()(4)(0) <CR><LF>
+                    P.98(0180814110500)(00)()(2)(91.11.0)()(91.11.10)()(5)(0) <CR><LF>
+                    ... 
+                    P.98(0180817170320)(00)()(2)(91.11.0)()(91.11.10)()(1)(0) <CR><LF>
+                    P.98(0180817171407)(00)()(2)(91.11.0)()(91.11.10)()(2)(0) <CR><LF>
+                    <ETX>BCC>
+        HHU:        <SOH>B0<ETX><BCC>
+        Meter:      <SOH>B0<ETX><BCC>
+        """
+        log_types = ['P.98', 'P.99', 'P.200', 'P.210', 'P.211']
+        if log_type not in log_types:
+            self.log('ERROR', f'Log {log_type} not implemented. Available types are {log_types}')
+            self._mod_result_obj(1, f'Log {log_type} not implemented.')
+            sys.exit(1)
+        
+        now = datetime.datetime.now(self.timezone)
+
+        # Query log based on the DB value or the last 90 minutes
+        if self.p98_from:
+            from_ts = datetime.datetime.strptime(self.p98_from, '%Y-%m-%dT%H:%M:%S%z')
+            self.log('DEBUG', f'Log {log_type} p98_from: "{self.p98_from}": {from_ts}')
+            ninty_min_ago = now - datetime.timedelta(minutes=90)
+            if from_ts > ninty_min_ago:
+                before = ninty_min_ago
+            else:
+                before = from_ts
+        else:
+            before = now - datetime.timedelta(minutes=90)
+
+        t_from = f"0{before.strftime('%y%m%d%H%M')}"
+
+        # data = f'P.0{profile_number}({t_from};{t_to})'.encode()
+        data = f'{log_type}({t_from};)'.encode()
+        cmd = b'R5'
+
+        return self.send_to_meter(in_cmd=cmd, in_data=data)
+
+    def readP98(self):
+        return self._readLog('P.98')
+
+    def readP99(self):
+        return self._readLog('P.99')
+
+    def readP200(self):
+        return self._readLog('P.200')
+
+    def readP210(self):
+        return self._readLog('P.210')
+
+    def readP211(self):
+        return self._readLog('P.211')
 
     def send_password(self):
         # -> Meter: <SOH>P1<STX>({password})<ETX><BCC>  

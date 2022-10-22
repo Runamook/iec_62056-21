@@ -17,7 +17,7 @@ import datetime
 # - Check if a meter should be queried
 # - Starts a job
 
-# TODO: meter locking
+# TODO: meter locking?
 # TODO: statistics counters
 
 
@@ -111,6 +111,9 @@ class MeterDB:
         """
         Updates meter SQL profile with P01 request ts
         If request was successfull - reset the ts
+
+
+        This function is to be replaced by universal update_from_field()
         """
         self.logger.debug(f'{meter} P01 action = "{action}"')
 
@@ -134,6 +137,38 @@ class MeterDB:
 
         return
 
+
+    def update_from_field(self, meter, data_type: str='p01_from', action: str='set', time_from=None):
+        """
+        Updates meter SQL profile with p01_from or p98_from request ts
+        If request was successfull - reset the ts
+        """
+
+        if data_type not in ['p01_from', 'p98_from']:
+            self.logger.error(f'Incorrect data type {data_type}, expecting one of ["p01_from", "p98_from"]')
+            sys.exit(1)
+
+        self.logger.debug(f'{meter} {data_type} action = "{action}"')
+
+        if isinstance(time_from, datetime.datetime):
+            now = f"to_timestamp(\'{time_from.strftime('%s')}\')"
+        else:
+            now = f"to_timestamp(\'{datetime.datetime.now().strftime('%s')}\')"
+
+        if action == 'set':
+            query = f"UPDATE {self.pg_schema}.meters SET {data_type}={now} WHERE meters.meter_id = '{meter}';"
+        elif action == 'delete':
+            query = f"UPDATE {self.pg_schema}.meters SET {data_type}=NULL WHERE meters.meter_id = '{meter}';"
+        else:
+            self.logger.warn(f'Unknown method "{action}" provided')
+
+        try:
+            self.conn.execute(query)
+            self.logger.debug(f'Executed {query}')
+        except Exception as e:
+            self.logger.error(f'Error "{e}" during meter {data_type} update, last query = "{query}"')
+
+        return
 
     def get_meters_from_pg(self, request):
         """
@@ -175,15 +210,15 @@ def process_data(meter, logger: logging.Logger, data_id, db: MeterDB =None):
     """
     meter_id = meter['meter_id']
 
+    # Feature
+    # App can request P01 data starting from the time, defined in the meter profile in DB
     if data_id == 'p01':
-
-
         # p01_from not defined - request the latest X minutes 
         # Meter object shall always have a p01_from attribute - either from DB or determined in runtime
         if not meter['p01_from']:
-
+            # meter[data_id] = seconds how often to query the data
             if meter[data_id] > 900:
-                # P01 is queried less often than every 15 minutes
+                # P01 is queried less often than every 15 minutes just query more
                 delta = meter[data_id] // 900 + 1
                 time_from = datetime.datetime.now() - datetime.timedelta(hours=delta)
 
@@ -194,26 +229,32 @@ def process_data(meter, logger: logging.Logger, data_id, db: MeterDB =None):
             else:
                 time_from = None
             # Set p01_from field in SQL meter profile if not set            
-            db.update_p01(meter_id, action='set', time_from=time_from)
+            db.update_from_field(meter_id, data_type='p01_from',action='set', time_from=time_from)
             """    
-            1. Check p01_from
-            2. If too big - only query p01_from + 24 hours
-            3. Update p01_from - set it to p01_from + 24 hours
-            4. Repeat
-
-            Old try, delete:
-            
-            else:
-
-            max_days = 0
-            # If p01_from exists - check if it is too big
-            now = datetime.datetime.now()
-            p01_from_object = datetime.datetime.strptime(meter['p01_from'], '%Y-%m-%dT%H:%M:%S%z')
-            if (now - p01_from_object).days > max_days:
-                # The request field demands more than 24 hours query
-                time_from = p01_from_object
-                time_to = 
+                1. Check p01_from
+                2. If too big - only query p01_from + 24 hours
+                3. Update p01_from - set it to p01_from + 24 hours
+                4. Repeat
             """
+
+    # Feature
+    # App can request Logs like P98 starting from the time, defined in the meter profile in DB
+    if data_id in ['p98']:
+        # p98_from not defined - request the latest X minutes 
+        # Meter object shall always have a p98_from attribute - either from DB or determined in runtime
+        if not meter['p98_from']:
+            # meter[data_id] = seconds how often to query the data
+            if meter[data_id] > 900:
+                # Log is queried less often than every 15 minutes just query more
+                delta = meter[data_id] // 900 + 1
+                time_from = datetime.datetime.now() - datetime.timedelta(hours=delta)
+
+                # strftime %z doesn't work for no reason
+                meter['p98_from'] = f"{time_from.strftime('%Y-%m-%dT%H:%M:%S%z')}+02:00"
+            else:
+                time_from = None
+            # Set p98_from field in SQL meter profile if not set
+            db.update_from_field(meter_id, data_type='p98_from', action='set', time_from=time_from)
 
     try:
         m = MyMeter(logger=logger, timeout=10, **meter)
@@ -226,8 +267,18 @@ def process_data(meter, logger: logging.Logger, data_id, db: MeterDB =None):
         raw_data = m.readList(list_number=data_id)
     elif data_id == 'p01':
         raw_data = m.readLoadProfile(profile_number='1')
+    elif data_id == 'p98':
+        raw_data = m.readP98()
+    elif data_id == 'p99':
+        raw_data = m.readP99()
+    elif data_id == 'p200':
+        raw_data = m.readP200()
+    elif data_id == 'p210':
+        raw_data = m.readP210()
+    elif data_id == 'p211':
+        raw_data = m.readP211()        
     else:
-        logger.warn(f'Unknown data_id = {data_id}')
+        logger.warning(f'Unknown data_id = {data_id}')
         sys.exit(1)
 
     # Parse data
@@ -247,7 +298,10 @@ def process_data(meter, logger: logging.Logger, data_id, db: MeterDB =None):
         if inserter.insert(parsed_data):
             if data_id == 'p01':
                 # All good - unset p01_from field in SQL meter profile
-                db.update_p01(meter_id, action='delete')
+                db.update_from_field(meter_id, data_type='p01_from', action='delete')
+            if data_id == 'p98':
+                # All good - unset p98_from field in SQL meter profile
+                db.update_from_field(meter_id, data_type='p98_from', action='delete')                
     else:
         logger.debug(f'{meter_id} nothing to insert')
     return

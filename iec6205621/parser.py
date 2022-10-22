@@ -26,8 +26,31 @@ class Parser:
         P.08 M-Bus Load Profile Channel 2 (M-Bus meter 2)
         P.09 M-Bus Load Profile Channel 3 (M-Bus meter 3)
         P.10 M-Bus Load Profile Channel 4 (M-Bus meter 4)
+
+        P.50 Manipulation Log file
+        P.51 Communication Log file
+        P.52 Power outage Log file
+        P.53 Power Quality log file
+        P.54 M-Bus Log file
+        P.55 Load relay (disconnect) Log file
+        P.56 Log file incl. registration of active energy
+        P.98 Standard Log file
     """
     
+    log_obis = {
+        'emh_p98': '100.0.98',
+        'emh_p99': '100.0.99',
+        'emh_p200': '100.0.200',
+        'emh_p210': '100.0.210',
+        'emh_p211': '100.0.211',
+        'metcom_p98_1': '101.1.98',
+        'metcom_p98_2': '101.2.98',
+        'metcom_p99': '101.1.99',
+        'metcom_p200': '101.1.200',
+        'metcom_p210': '101.1.210',
+        'metcom_p211': '101.1.211'
+    }
+
     tz_offset = dict()
     tz_offset['CET'] = '+0200'
 
@@ -42,9 +65,12 @@ class Parser:
         self.manufacturer = meter['manufacturer'].lower() or 'emh'
 
         self.timezone = meter.get('timezone') or 'CET'
-        # self.timezone = pytz.timezone(tz)
+        self.offset = Parser.tz_offset.get(self.timezone)
+        if self.offset is None:
+            self.log('ERROR', f'Unknown timezone "{self.timezone}". Please define in "{Parser.tz_offset}"')
+            sys.exit(1)
 
-        # self.log('DEBUG', f'Data type: {data_type}:\n{raw_data}')
+        self.time_format = '%y%m%d%H%M%S %z'
 
 
     def parse(self):
@@ -54,8 +80,17 @@ class Parser:
             self._parse_list2()
         elif self.data_type == 'list4':
             self._parse_list2()
-        elif self.data_type == 'p01':
-            self._parseP01()
+        elif self.data_type in ['P.98', 'p98']:
+            self._parseP98()
+        elif self.data_type in ['P.99', 'p99']:
+            self._parseP99()
+        elif self.data_type in ['P.200', 'p200']:
+            self._parseP200()
+        elif self.data_type in ['P.210', 'p210']:
+            self._parseP210()
+        elif self.data_type in ['P.211', 'p211']:
+            self._parseP211()
+        
         else:
             self.log('ERROR', f'{self.data_type} parser not implemented')
             sys.exit(1)
@@ -181,6 +216,163 @@ class Parser:
                     self.log('ERROR', f'{e} while processing {line}')
                     continue
 
+    def _parseP98(self):
+        """
+        EMH
+
+            P.98([z]YYMMDDhhmmss)(SSSSSSSS)()(k)[(<Kenn1>)()..[(identk>)()]][(<value1 >)..[(<valuek>)]]<CR><LF>
+            P.98([z]YYMMDDhhmmss)(SSSSSSSS)()(k)[(<Kenn1>)()..[( identk>)()]][(<value1 >)..[(<valuek>)]]<CR><LF>
+
+            /EMH5\@\201LZQJL0013F
+            0.0.0(23456321)
+            P.98(1041007095703)(00002000)()(0)
+            P.98(1041007095703)(00004000)()(0)
+            P.98(1041007095807)(00000100)()(0)
+            P.98(1041007095914)(00000080)()(0)
+            P.98(1041007100749)(00000040)()(0)
+            P.98(1041007101738)(00000100)()(0)
+
+            z:  Season-codes: 0 = normal time, 1 = summer time, 2 = UTC
+                Note: Depending on the setting of the meter the output of this value can be controlled.
+                It is then accepted as z=2 or depending on the season z=0 or 1.
+            YYMMDDhhmmss: Time stamp of the log book entry. 
+                In the case of a time adjustment this time stamp gives the time before the adjustment.
+            SSSSSSSS: Status in form of a 32-Bit length ASCII-HEX-number.
+                The high quality nibble (Bits 31..28) is on the left, 
+                the low quality nibble (Bits 3..0) on the right. 
+                The meaning of the bits is clear from the following table.
+            k: Number of values which will follow. 
+                If it is k=0, then the information about ident n and valuen is left out.
+            identn: Recognition of the value (OBIS code). 
+                In case of a time adjustment, these values correspond to the values after the adjustment.
+            valuen: value
+
+        Metcom
+            KZ(ZSTs13)(S)()(z)(KZ1)(E1)(KZ2)(E2)Data 1 Data 2
+            P.98(1220906234907)(00)()(2)(0-0:C.11.0)()(0-0:C.11.10)()(5)(0)
+            P.98(1220919161837)(00)()(2)(0-0:C.11.0)()(0-0:C.11.10)()(17)(1)
+            
+            KZ OBIS-Identifier "P.98"
+            ZSTs13 Time stamp format of the entry
+            S Status Byte -> always: 0000
+            z Number of additional log file data
+            KZ1 Identifier of the additional log file data -> 96.11.0 (Standard log)
+                Remark: from FW 02.12 onwards the identifier 96.11.0 can be defined as C.11.0 too (configuration)
+            KZ2 Identifier of the additional log file data -> 96.11.10 (Standard log)
+                Remark: from FW 02.12 onwards the identifier 96.11.10 can be defined as C.11.10 too (configuration)
+            E1 Units of additional log file data -> always: ()
+            E2 Units of additional log file data -> always: ()
+            D1 additional log file data -> (Status information, see below)
+            D2 (0) (Standard log)
+
+        """
+
+        if self.manufacturer == 'emh':
+            # P.98(1041007095703)(00002000)()(0) find 1041007095703
+            re_log_ts = re.compile('^P.98[(](\d+?)[)]')
+            # P.98(1041007095703)(00002000)()(0) find 00002000
+            # EMH
+            re_log_record = re.compile('^.+[(]\d+?[)][(](\d+?)[)]')
+
+            for log_line in self.unparsed_data.split('\r\n'):
+                try:
+                    log_line = log_line.strip()
+
+                    # Parse only lines starting from "^P.98"
+                    if not log_line.startswith('P.98'):
+                        continue
+                    else:
+
+                        # P.98(1041007095703)(00002000)()(0)
+                        # log_ts = 1041007095703
+                        # log_record = 00002000
+                        log_ts = re_log_ts.search(log_line).groups()[0][1:]     # strip left-most digit (usually '1')
+                        log_record = re_log_record.search(log_line).groups()[0]
+
+                        # Take meter TZ and make timestamp UTC
+                        log_ts_parsed = datetime.datetime.strptime(f"{log_ts} {self.offset}", self.time_format)
+
+                        parsed_line = {
+                            'id': Parser.log_obis['emh_p98'],
+                            'value': log_record,
+                            'unit': None,
+                            'line_time': (log_ts_parsed).strftime('%s')
+                        }
+                        self.parsed_data.append(parsed_line)
+                except Exception as e:
+                    self.log('ERROR', f'Exception "{e}" during P98 line parsing "{log_line}"')
+                    sys.exit(1)
+
+            # [
+            #   {'id': '100.0.98', 'value': '00002000', 'unit': None, 'line_time': '1097135823'}, 
+            #   {'id': '100.0.98', 'value': '00004000', 'unit': None, 'line_time': '1097135823'}, 
+            #   {'id': '100.0.98', 'value': '00000100', 'unit': None, 'line_time': '1097135887'}, 
+            #   {'id': '100.0.98', 'value': '00000080', 'unit': None, 'line_time': '1097135954'}
+            # ]
+            # There may be a situation where two log events would happen in the same time.
+            # I will add one second to one of them
+
+            result = []
+            for parsed_line in self.parsed_data:
+                ts = parsed_line['line_time']
+                if ts in result:
+                    # This time already exists in the result
+                    # Remove the line and increase by one, fingers crossed
+                    self.parsed_data.remove(parsed_line)
+                    parsed_line['line_time'] = f"{int(parsed_line['line_time'])+1}"
+                    self.parsed_data.append(parsed_line)
+                else:
+                    result.append(ts)
+
+            return
+
+        elif self.manufacturer == 'metcom':
+            # Metcom
+            # P.98(1220906234907)(00)()(2)(0-0:C.11.0)()(0-0:C.11.10)()(5)(0)
+            # P.98(1220919161837)(00)()(2)(0-0:C.11.0)()(0-0:C.11.10)()(17)(1)
+            re_log_ts = re.compile('^P.98[(](\d+?)[)]')
+
+            for log_line in self.unparsed_data.split('\r\n'):
+                try:
+                    log_line = log_line.strip()
+
+                    # Parse only lines starting from "^P.98"
+                    if not log_line.startswith('P.98'):
+                        continue
+                    else:
+
+                        # P.98(1220906234907)(00)()(2)(0-0:C.11.0)()(0-0:C.11.10)()(5)(0)
+                        # log_ts = 1220906234907
+                        # log_data_1 = 5
+                        # log_data_2 = 0
+                        log_ts = re_log_ts.search(log_line).groups()[0][1:]     # strip left-most digit (usually '1')
+                        log_record_1 = log_line.split('(')[-2].strip(')')
+                        log_record_2 = log_line.split('(')[-1].strip(')')
+
+                        # Take meter TZ and make timestamp UTC
+                        log_ts_parsed = datetime.datetime.strptime(f"{log_ts} {self.offset}", self.time_format)
+
+                        parsed_line_1 = {
+                            'id': Parser.log_obis['metcom_p98_1'],
+                            'value': log_record_1,
+                            'unit': None,
+                            'line_time': (log_ts_parsed).strftime('%s')
+                        }
+                        parsed_line_2 = {
+                            'id': Parser.log_obis['metcom_p98_2'],
+                            'value': log_record_2,
+                            'unit': None,
+                            'line_time': (log_ts_parsed).strftime('%s')
+                        }
+                        self.parsed_data.extend([parsed_line_1, parsed_line_2])
+                except Exception as e:
+                    self.log('ERROR', f'Exception "{e}" during P98 line parsing "{log_line}"')
+                    sys.exit(1)
+
+        else:
+            self.log('ERROR', f'Unknown manufacturer {self.manufacturer}, expecting one of ["emh", "metcom"]')
+            sys.exit(1)            
+
     def _parseP99(self, raw_line):
         """
         :param raw_line:
@@ -229,6 +421,17 @@ class Parser:
             self.log('ERROR', f'{e} while processing "{raw_line}"')
             return None
 
+    def _parseP200(self, raw_line):
+        
+        return
+
+    def _parseP210(self, raw_line):
+        
+        return
+
+    def _parseP211(self, raw_line):
+        
+        return                
 
     def _parseP01(self):
         """
@@ -259,15 +462,7 @@ class Parser:
         En          Units of measured values
         Mwn         Measured values
         """
-
-        time_format = '%y%m%d%H%M%S %z'
-        # tz_utc = pytz.timezone('UTC')
-
-        offset = Parser.tz_offset.get(self.timezone)
-        if offset is None:
-            self.log('ERROR', f'Unknown timezone "{self.timezone}". Please define in "{Parser.tz_offset}"')
-            sys.exit(1)
-
+        
         data = self.unparsed_data.split('\n')
         for line in data:
 
@@ -300,7 +495,7 @@ class Parser:
                     kz = line[0]
 
                     # Take meter TZ and make timestamp UTC
-                    zsts13 = datetime.datetime.strptime(f"{line[1].strip(')')[1:]} {offset}", time_format)
+                    zsts13 = datetime.datetime.strptime(f"{line[1].strip(')')[1:]} {self.offset}", self.time_format)
 
 
                     if self.manufacturer == 'metcom':
