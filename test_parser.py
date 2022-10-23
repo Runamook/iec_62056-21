@@ -118,7 +118,7 @@ class IECTest(unittest.TestCase):
         p.log('DEBUG', f'\n\n{p.parsed_data}')
         self.assertEqual(len(p.parsed_data), 12, 'Parse Metcom P98 set 2 failed')
 
-    def test_parseP98_2(self):
+    def test_parseP98_3(self):
         p = parser.Parser(raw_data=IECTest.P98_data_3, data_type='P.98', logger=logger, **IECTest.meter_emh)
         #p.log('DEBUG', p.unparsed_data)
         p._parseP98()
