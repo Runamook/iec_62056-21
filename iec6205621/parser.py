@@ -80,6 +80,8 @@ class Parser:
             self._parse_list2()
         elif self.data_type == 'list4':
             self._parse_list2()
+        elif self.data_type == 'p01':
+            self._parseP01()            
         elif self.data_type in ['P.98', 'p98']:
             self._parseP98()
         elif self.data_type in ['P.99', 'p99']:
@@ -223,15 +225,19 @@ class Parser:
             P.98([z]YYMMDDhhmmss)(SSSSSSSS)()(k)[(<Kenn1>)()..[(identk>)()]][(<value1 >)..[(<valuek>)]]<CR><LF>
             P.98([z]YYMMDDhhmmss)(SSSSSSSS)()(k)[(<Kenn1>)()..[( identk>)()]][(<value1 >)..[(<valuek>)]]<CR><LF>
 
-            /EMH5\@\201LZQJL0013F
-            0.0.0(23456321)
-            P.98(1041007095703)(00002000)()(0)
-            P.98(1041007095703)(00004000)()(0)
-            P.98(1041007095807)(00000100)()(0)
-            P.98(1041007095914)(00000080)()(0)
-            P.98(1041007100749)(00000040)()(0)
-            P.98(1041007101738)(00000100)()(0)
-
+            2022-10-23 02:07:36,738 __main__     DEBUG    08032332 192.168.104.12:8000 P.98(1220826235646)(00008020)()(2)(0.9.1)()(0.9.2)()(1235703)(1220826)
+            P.98(1220828235723)(00008020)()(2)(0.9.1)()(0.9.2)()(1235710)(1220828)
+            P.98(1220829235716)(00008020)()(2)(0.9.1)()(0.9.2)()(1235706)(1220829)
+            P.98(1220901000000)(00000010)()(0)
+            P.98(1220906115553)(00000080)()(0)
+            P.98(1220906120814)(00000040)()(0)
+            P.98(1220910235706)(00008020)()(2)(0.9.1)()(0.9.2)()(1235654)(1220910)
+            P.98(1220915214214)(00008020)()(2)(0.9.1)()(0.9.2)()(1214203)(1220915)
+            P.98(1220927000028)(00008020)()(2)(0.9.1)()(0.9.2)()(1000013)(1220927)
+            P.98(1221001000000)(00000010)()(0)
+            P.98(1221003235705)(00008020)()(2)(0.9.1)()(0.9.2)()(1235650)(1221003)
+            P.98(1221016235720)(00008020)()(2)(0.9.1)()(0.9.2)()(1235709)(1221016)
+            P.98(1221020125609)(00008020)()(2)(0.9.1)()(0.9.2)()(1125620)(1221020)
             z:  Season-codes: 0 = normal time, 1 = summer time, 2 = UTC
                 Note: Depending on the setting of the meter the output of this value can be controlled.
                 It is then accepted as z=2 or depending on the season z=0 or 1.
@@ -268,6 +274,7 @@ class Parser:
         """
 
         if self.manufacturer == 'emh':
+
             # P.98(1041007095703)(00002000)()(0) find 1041007095703
             re_log_ts = re.compile('^P.98[(](\d+?)[)]')
             # P.98(1041007095703)(00002000)()(0) find 00002000
@@ -283,11 +290,18 @@ class Parser:
                         continue
                     else:
 
+                        # This part didn't work well on some new EMH logs like:
+                        # P.98(1220829235716)(00008020)()(2)(0.9.1)()(0.9.2)()(1235706)(1220829)
+                        # Patch using split instead of re
+
                         # P.98(1041007095703)(00002000)()(0)
                         # log_ts = 1041007095703
                         # log_record = 00002000
-                        log_ts = re_log_ts.search(log_line).groups()[0][1:]     # strip left-most digit (usually '1')
-                        log_record = re_log_record.search(log_line).groups()[0]
+                        # log_ts = re_log_ts.search(log_line).groups()[0][1:]     # strip left-most digit (usually '1')
+                        # log_record = re_log_record.search(log_line).groups()[0]
+
+                        log_ts = log_line.split('(')[1].strip(')')[1:]
+                        log_record = log_line.split('(')[2].strip(')')
 
                         # Take meter TZ and make timestamp UTC
                         log_ts_parsed = datetime.datetime.strptime(f"{log_ts} {self.offset}", self.time_format)

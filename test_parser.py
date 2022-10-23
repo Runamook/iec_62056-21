@@ -81,9 +81,13 @@ class IECTest(unittest.TestCase):
 
     # EMH? P.98
     P98_data_1 = '/EMH5\@\201LZQJL0013F\r\n0.0.0(23456321)\r\nP.98(1041007095703)(00002000)()(0)\r\nP.98(1041007095703)(00004000)()(0)\r\nP.98(1041007095807)(00000100)()(0)\r\nP.98(1041007095914)(00000080)()(0)\r\n'
-    
+
     # Metcom P.98
     P98_data_2 = 'P.98(1220906234904)(00)()(2)(0-0:C.11.0)()(0-0:C.11.10)()(4)(0)\r\nP.98(1220906234849)(00)()(2)(0-0:C.11.0)()(0-0:C.11.10)()(5)(0)\r\nP.98(1220906234850)(00)()(2)(0-0:C.11.0)()(0-0:C.11.10)()(4)(0)\r\nP.98(1220906234907)(00)()(2)(0-0:C.11.0)()(0-0:C.11.10)()(5)(0)\r\nP.98(1220919161837)(00)()(2)(0-0:C.11.0)()(0-0:C.11.10)()(17)(1)\r\nP.98(1220919162143)(00)()(2)(0-0:C.11.0)()(0-0:C.11.10)()(18)(1)\r\n'
+
+    # EMG 2 P.98
+    P98_data_3 = 'P.98(1220826235646)(00008020)()(2)(0.9.1)()(0.9.2)()(1235703)(1220826)\r\nP.98(1220828235723)(00008020)()(2)(0.9.1)()(0.9.2)()(1235710)(1220828)\r\nP.98(1220829235716)(00008020)()(2)(0.9.1)()(0.9.2)()(1235706)(1220829)\r\nP.98(1220901000000)(00000010)()(0)\r\nP.98(1220906115553)(00000080)()(0)\r\nP.98(1220906120814)(00000040)()(0)'
+
     def test_parseP01_1(self):
         p = parser.Parser(raw_data=IECTest.P01_data_1, data_type='P.01', logger=logger, **IECTest.meter_emh)
         p._parseP01()
@@ -113,6 +117,13 @@ class IECTest(unittest.TestCase):
         p._parseP98()
         p.log('DEBUG', f'\n\n{p.parsed_data}')
         self.assertEqual(len(p.parsed_data), 12, 'Parse Metcom P98 set 2 failed')
+
+    def test_parseP98_2(self):
+        p = parser.Parser(raw_data=IECTest.P98_data_3, data_type='P.98', logger=logger, **IECTest.meter_emh)
+        #p.log('DEBUG', p.unparsed_data)
+        p._parseP98()
+        #p.log('DEBUG', f'\n\n{p.parsed_data}')
+        self.assertEqual(len(p.parsed_data), 6, 'Parse EMH P98 set 2 failed')
 
 
 if __name__ == '__main__':
