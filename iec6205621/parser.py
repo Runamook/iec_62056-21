@@ -76,6 +76,8 @@ class Parser:
     def parse(self):
         if self.data_type == 'list3':
             self._parse_list3_new()
+        elif self.data_type == 'list1':
+            self._parse_list1()
         elif self.data_type == 'list2':
             self._parse_list2()
         elif self.data_type == 'list4':
@@ -92,7 +94,8 @@ class Parser:
             self._parseP210()
         elif self.data_type in ['P.211', 'p211']:
             self._parseP211()
-        
+        elif self.data_type in ['error', 'Error']:
+            self._parseErrorLog()        
         else:
             self.log('ERROR', f'{self.data_type} parser not implemented')
             sys.exit(1)
@@ -172,6 +175,100 @@ class Parser:
                     self.log('ERROR', f'{e} while processing {line}')
                     continue
 
+
+    def _parse_list1(self):
+        """
+        Metcom list1
+
+            F.F(00000000)
+            0.0.0(10067967)
+            0.0.1(10067967)
+            0.9.1(121752)
+            0.9.2(221113)
+            0.1.0(12)
+            0.1.2(2211010000)
+            0.1.2*12(2211010000)
+            0.1.2*11(2210010000)
+            0.1.2*10(2209010000)
+            1.6.1(0.50262*kW)(2211120730)
+            1.6.1*12(0.39912*kW)(2210130900)
+            1.6.1*11(0.74906*kW)(2209281400)
+            1.6.1*10(0.49578*kW)(2208111330)
+            2.6.1(0.00000*kW)(2211010000)
+            2.6.1*12(0.00000*kW)(2210010000)
+            2.6.1*11(0.00000*kW)(2209010000)
+            2.6.1*10(0.00000*kW)(2208010000)
+            1.8.0(01280.7125*kWh)
+            1.8.0*12(01236.1958*kWh)
+            1.8.0*11(01158.9747*kWh)
+            1.8.0*10(01097.4085*kWh)
+            2.8.0(00000.0000*kWh)
+            2.8.0*12(00000.0000*kWh)
+            2.8.0*11(00000.0000*kWh)
+            2.8.0*10(00000.0000*kWh)
+            5.8.0(00049.1783*kvarh)
+            5.8.0*12(00048.8006*kvarh)
+            5.8.0*11(00045.9754*kvarh)
+            5.8.0*10(00041.7958*kvarh)
+            6.8.0(00000.0000*kvarh)
+            6.8.0*12(00000.0000*kvarh)
+            6.8.0*11(00000.0000*kvarh)
+            6.8.0*10(00000.0000*kvarh)
+            7.8.0(00000.0000*kvarh)
+            7.8.0*12(00000.0000*kvarh)
+            7.8.0*11(00000.0000*kvarh)
+            7.8.0*10(00000.0000*kvarh)
+            8.8.0(00079.8389*kvarh)
+            8.8.0*12(00075.0837*kvarh)
+            8.8.0*11(00062.7016*kvarh)
+            8.8.0*10(00050.2358*kvarh)
+            0.3.3(3000)
+            0.2.2(00000001)
+            0.2.0(01.01.28)
+            0.2.0(02.02.13)
+            0.2.0(2.2.8)
+            !
+        :return:
+        """
+        pre_parsed = self._find_data_blocks()
+
+        if pre_parsed.get('list'):
+            for line in pre_parsed['list']:
+                parsed_line = {
+                    'id': None,
+                    'value': None,
+                    'unit': None
+                }
+                try:
+                    parsed_line['id'] = Parser.re_id.search(line).groups()[0]
+
+                    if '*' in parsed_line['id']:
+                        # Skip history data like
+                        # 0.1.2*12(2211010000)\r\n
+                        # 0.1.2*11(2210010000)\r\n
+                        # 0.1.2*10(2209010000)\r\n
+                        # 1.6.1(0.50262*kW)(2211120730)\r\n
+                        # 1.6.1*12(0.39912*kW)(2210130900)\r\n
+                        # 1.6.1*11(0.74906*kW)(2209281400)\r\n
+                        # 1.6.1*10(0.49578*kW)(2208111330)\r\n
+                        continue
+
+                    if Parser.re_value1.search(line):
+                        # TODO: WARNING re matches 'C.90.2(70D4EF6C)' value as '70'
+                        # TODO: WARNING re matches '0.0.0(1EMH0010134075)' value as '1'
+                        value = Parser.re_value1.search(line).groups()[0]
+                    else:
+                        value = Parser.re_value2.search(line).groups()[0]
+                    parsed_line['value'] = value
+                    if Parser.re_unit.search(line):
+                        unit = Parser.re_unit.search(line).groups()[0]
+                        parsed_line['unit'] = unit
+                    self.parsed_data.append(parsed_line)
+                except Exception as e:
+                    self.log('ERROR', f'{e} while processing {line}')
+                    continue
+
+
     def _parse_list2(self):
         """
         Metcom_new list2
@@ -217,6 +314,36 @@ class Parser:
                 except Exception as e:
                     self.log('ERROR', f'{e} while processing {line}')
                     continue
+
+    def _parseErrorLog(self):
+        """
+        Parses the error log
+        
+        EMH returns string 'F.F(00000000)'
+        
+        TODO: Metcom retuns something else
+        """
+
+
+        if self.manufacturer == 'emh':
+
+            line = self.unparsed_data.strip()
+            if '\r\n' in line:
+                self.log('ERROR', f'Meter returned something unexpected in F.F log: "{line}"')
+                sys.exit(1)
+            elif 'F.F' not in line:
+                self.log('ERROR', f'Meter returned something unexpected in F.F log: "{line}"')
+                sys.exit(1)
+            else:
+                try:
+                    # F.F(00000000)
+                    log_record = line.split('(')[1].strip(')')
+
+                    self.parsed_data.append({'id': 'F.F', 'value': log_record, 'unit': 'log'})
+                except Exception as e:
+                    self.log('ERROR', f'Something went wrong when parsing ErrorLog {line}')
+                    sys.exit(1)
+        return
 
     def _parseP98(self):
         """
@@ -602,7 +729,15 @@ class Parser:
 
 
     def _find_data_blocks(self):
-        splitted_data = self.unparsed_data.split('\r\n')[1:]
+
+
+        splitted_data = self.unparsed_data.split('\r\n')
+        
+        # Table 1 provides F.F error register in the first line,
+        # Other tables may provide meter name
+        if not 'F.F' in splitted_data[0]:
+            splitted_data = splitted_data[1:]
+
         pre_parsed = dict()
         # TODO: Parse MetCom line 1.6.1(0.00061*kW)(2101021645)
         re_list_pattern1 = re.compile('^\w+\\.\w.*?[(].*?[)]')

@@ -88,6 +88,12 @@ class IECTest(unittest.TestCase):
     # EMG 2 P.98
     P98_data_3 = 'P.98(1220826235646)(00008020)()(2)(0.9.1)()(0.9.2)()(1235703)(1220826)\r\nP.98(1220828235723)(00008020)()(2)(0.9.1)()(0.9.2)()(1235710)(1220828)\r\nP.98(1220829235716)(00008020)()(2)(0.9.1)()(0.9.2)()(1235706)(1220829)\r\nP.98(1220901000000)(00000010)()(0)\r\nP.98(1220906115553)(00000080)()(0)\r\nP.98(1220906120814)(00000040)()(0)'
 
+    # EMH F.F
+    FF_data = 'F.F(00000000)\r\n'
+
+    # Metcom table1
+    Table1_data = 'F.F(00000000)\r\n0.0.0(10067967)\r\n0.0.1(10067967)\r\n0.9.1(202405)\r\n0.9.2(221113)\r\n0.1.0(12)\r\n0.1.2(2211010000)\r\n0.1.2*12(2211010000)\r\n0.1.2*11(2210010000)\r\n0.1.2*10(2209010000)\r\n1.6.1(0.50262*kW)(2211120730)\r\n1.6.1*12(0.39912*kW)(2210130900)\r\n1.6.1*11(0.74906*kW)(2209281400)\r\n1.6.1*10(0.49578*kW)(2208111330)\r\n2.6.1(0.00000*kW)(2211010000)\r\n2.6.1*12(0.00000*kW)(2210010000)\r\n2.6.1*11(0.00000*kW)(2209010000)\r\n2.6.1*10(0.00000*kW)(2208010000)\r\n1.8.0(01281.6601*kWh)\r\n'
+
     def test_parseP01_1(self):
         p = parser.Parser(raw_data=IECTest.P01_data_1, data_type='P.01', logger=logger, **IECTest.meter_emh)
         p._parseP01()
@@ -124,6 +130,21 @@ class IECTest(unittest.TestCase):
         p._parseP98()
         #p.log('DEBUG', f'\n\n{p.parsed_data}')
         self.assertEqual(len(p.parsed_data), 6, 'Parse EMH P98 set 2 failed')
+
+    def test_parseEmhError(self):
+        p = parser.Parser(raw_data=IECTest.FF_data, data_type='error', logger=logger, **IECTest.meter_emh)
+        #p.log('DEBUG', p.unparsed_data)
+        p._parseErrorLog()
+        p.log('DEBUG', f'\n\n{p.parsed_data}')
+        self.assertEqual(len(p.parsed_data), 1, 'Parse EMH error log dailed')
+
+    def test_parseMcsTable1(self):
+        p = parser.Parser(raw_data=IECTest.Table1_data, data_type='list1', logger=logger, **IECTest.meter_metcom)
+        #p.log('DEBUG', p.unparsed_data)
+        p._parse_list1()
+        p.log('DEBUG', f'\n\n{p.parsed_data}')
+        self.assertEqual(len(p.parsed_data), 10, 'Parse MCS Table1 failed')
+
 
 
 if __name__ == '__main__':

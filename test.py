@@ -53,5 +53,18 @@ class IECTest(unittest.TestCase):
         #self.assertIsInstance(test_response, dict, '\nAPI response is not a dict')
         #self.assertIn('dt', test_response, '\nNo "dt" section in API response')
 
+    def test_readLoadProfile(self):
+        m = client.Meter(**IECTest.meter_in)
+        m.readErrorLog()
+        print(m.data)
+        self.assertIn('F.F', m.data, 'No data received')
+
+    def test_readTable1(self):
+        m = client.Meter(**IECTest.meter_in)
+        m.readList('1')
+        print(m.data)
+        self.assertIn('F.F', m.data, 'No data received')
+          
+
 if __name__ == '__main__':
     unittest.main()

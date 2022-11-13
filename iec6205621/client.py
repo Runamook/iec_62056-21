@@ -348,7 +348,7 @@ class Meter:
 
         """
         if list_number in ['1', 'list1']:
-            list_number = '?'
+            return self._readList1()
         elif list_number in ['2', 'list2']:
             list_number = '2'
         elif list_number in ['3', 'list3']:
@@ -377,12 +377,67 @@ class Meter:
 
             elif self.manufacturer == 'emh':
                 return self._sendcmd_and_decode_response(cmd)
+
             elif self.manufacturer == 'metcom':
                 return self._sendcmd_and_decode_response(cmd)
         except Exception as e:
             self.log('ERROR', e)
             self._mod_result_obj(1, e)
             sys.exit(1)
+
+
+    def _readList1(self):
+            """
+            Reads a list/table 1 from the meter
+
+            HHU: /?12345678!<CR><LF>
+            Meter: /MCS5\@V0050710000051<CR><LF>
+            HHU: <ACK>051<CR><LF>
+            Meter: <STX>F.F(00000000)<CR><LF>
+                    1-0:0.0.0(10000051)<CR><LF>
+                    1-0:0.9.1(14:45:59)<CR><LF>
+                    1-0:0.2.2(12345678)<CR><LF>
+                    1-0:1.8.1(123.34kWh)<CR><LF>
+                    1-0:1.8.2(37.57kWh)<CR><LF>
+                    ....
+            Implementing 
+                -> id
+                <- response
+                -> 050
+                <- data
+                
+            Be aware that EMH and MetCom sometimes works differently:
+            HHU: /?12345678!<CR><LF>
+            Meter: <STX>F.F(00000000)<CR><LF>
+                    1-0:0.0.0(10000051)<CR><LF>
+                    1-0:0.9.1(14:45:59)<CR><LF>
+                    1-0:0.2.2(12345678)<CR><LF>
+                    1-0:1.8.1(123.34kWh)<CR><LF>
+
+
+
+            :return: meter response
+
+            """
+            list_number = '?'
+
+            if self.use_meter_id:
+                cmd = f'/{list_number}{self.meter_id}!\r\n'.encode()
+            else:
+                cmd = f'/{list_number}!\r\n'.encode()
+            try:
+                id_message = self._sendcmd(cmd, etx=self.LF).decode()
+                if 'B0' in id_message:
+                    self.log('WARN', 'Meter ended communication')
+                    sys.exit(1)
+                self._parse_id_message(id_message)
+                result = self._ackOptionSelect()
+                return result
+
+            except Exception as e:
+                self.log('ERROR', e)
+                sys.exit(1)
+
 
     def _readLog(self, log_type: str='P.98'):
         """
@@ -433,6 +488,37 @@ class Meter:
         cmd = b'R5'
 
         return self.send_to_meter(in_cmd=cmd, in_data=data)
+
+    def readErrorLog(self):
+        """
+        Read error log 
+
+        EMH (approximate flow)
+
+        HHU -> Meter: /?12345678!<CR><LF>
+        Meter -> HHU: /EMH4\@01LZQJL0013G
+        HHU -> Meter: <ACK>051<CR><LF>
+        Meter -> HHU: P0()<ETX>
+        HHU -> Meter: <SOH>R5<STX>F.F()<ETX>I
+        Meter -> HHU: F.F(00000000)<ETX>
+
+        """
+
+
+        if self.manufacturer == 'emh':
+            data = f'F.F()'.encode()
+            cmd = b'R5'
+
+            return self.send_to_meter(in_cmd=cmd, in_data=data)
+        else:
+            # It doesn't work for MCS Metcom meters
+            # But still
+
+            data = f'F.F()'.encode()
+            cmd = b'R5'
+
+            return self.send_to_meter(in_cmd=cmd, in_data=data)
+
 
     def readP98(self):
         return self._readLog('P.98')

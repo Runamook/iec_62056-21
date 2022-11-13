@@ -262,7 +262,7 @@ def process_data(meter, logger: logging.Logger, data_id, db: MeterDB =None):
         logger.error(e)
         sys.exit(1)
 
-    logger.debug(f'data_id = {data_id} {meter}')
+    #logger.debug(f'data_id = {data_id} {meter}')
     if data_id in ['list1', 'list2', 'list3', 'list4']:
         raw_data = m.readList(list_number=data_id)
     elif data_id == 'p01':
@@ -277,6 +277,8 @@ def process_data(meter, logger: logging.Logger, data_id, db: MeterDB =None):
         raw_data = m.readP210()
     elif data_id == 'p211':
         raw_data = m.readP211()        
+    elif data_id == 'error':
+        raw_data = m.readErrorLog()         
     else:
         logger.warning(f'Unknown data_id = {data_id}')
         sys.exit(1)
