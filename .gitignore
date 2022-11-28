@@ -135,4 +135,3 @@ dmypy.json
 *.tgz
 *.ini
 Single_original/
-get_wind.py
