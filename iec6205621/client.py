@@ -110,6 +110,8 @@ class Meter:
         self.timezone = pytz.timezone(tz)
         self.p01_from = meter.get('p01_from') or None
         self.p98_from = meter.get('p98_from') or None
+
+        self.mode = meter.get('mode') or True          # True => <ACK>050<CR><LF>, False => <ACK>051<CR><LF>
         self._connect()
 
     def log(self, severity, logstring):
@@ -193,8 +195,13 @@ class Meter:
     def _ackOptionSelect(self, data_readout_mode: bool = True):
         """
         Send ACK/optionSelect message (6.3.3)
-        HHU: <ACK>051<CR><LF>
+        data_readout_mode = True (default)
+        HHU: <ACK>050<CR><LF>
+            
+        data_readout_mode = False
+        HHU: <ACK>0511<CR><LF>
         """
+        
         baud_rate = '5'
         if data_readout_mode:
             y = '0'
@@ -372,7 +379,7 @@ class Meter:
                     self.log('WARN', 'Meter ended communication')
                     sys.exit(1)
                 self._parse_id_message(id_message)
-                result = self._ackOptionSelect()
+                result = self._ackOptionSelect(data_readout_mode=self.mode)
                 return result
 
             elif self.manufacturer == 'emh':
@@ -380,6 +387,27 @@ class Meter:
 
             elif self.manufacturer == 'metcom':
                 return self._sendcmd_and_decode_response(cmd)
+
+            elif self.manufacturer == 'metcom_edge':
+                """
+                Edge project
+                Meter expects to see 
+                    HHU: /2!<CR><LF>
+                    Meter: /MCS5\@V0050710000051<CR><LF>
+                    HHU: <ACK>050<CR><LF>
+                    Meter: <STX>32.7.0(228.3V)<CR><LF>
+                            52.7.0(228.4V)<CR><LF>
+                            72.7.0(229.41)<CR><LF>
+                            31.7.0(0.498A)<CR><LF>
+                """
+                id_message = self._sendcmd(cmd, etx=self.LF).decode()
+                if 'B0' in id_message:
+                    self.log('WARN', 'Meter ended communication')
+                    sys.exit(1)
+                self._parse_id_message(id_message)
+                result = self._ackOptionSelect()
+                return result
+
         except Exception as e:
             self.log('ERROR', e)
             self._mod_result_obj(1, e)

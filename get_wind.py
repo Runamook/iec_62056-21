@@ -87,6 +87,78 @@ class VirtualMeter:
         self.turbine = self._initialize_turbine()
         self.result = {'weather_data': None, 'power': None, 'error_code': 0, 'error_text': None}
 
+    @staticmethod
+    def get_wind_many(api_user, api_password, meters, logger):
+        """
+        meters = [
+            {
+                'id': 23, 
+                'melo': None, 
+                'description': 'Test meter with password', 
+                'manufacturer': 'Metcom', 
+                'installation_date': None, 
+                'is_active': True, 
+                'meter_id': '10067967', 
+                'ip_address': '10.0.0.1', 
+                'port': 8000, 
+                'voltagefactor': 1, 
+                'currentfactor': 1, 
+                'org': 'Test', 
+                'guid': None, 
+                'source': None, 
+                'password': '12345678', 
+                'use_password': True, 
+                'timezone': 'CET', 
+                'use_id': True, 
+                'p01_from': None,
+                'latitude': 53.0, 
+                'longitude': 4.0, 
+                'turbine_manufacturer': 'Enercon', 
+                'turbine_type': 'E-101/3050', 
+                'turbine_hub_height': 120, 
+                'roughness_length': 0.2, 
+                'mastr_id': None, 
+                'p01_to': None, 
+                'inverted': 1, 
+                'p98_from': '2022-10-23T00:55:00+03:00'},
+                 {}, {}
+                ]
+        """
+        
+        try:
+            # Create coord_set from input metes
+            coord_set = ''
+
+            for meter in meters:
+                lat = meter['latitude']
+                lon = meter['longitude']
+                coord_set += f'{lat},{lon}+'
+            coord_set = coord_set.rstrip('+')
+            
+            # Request data
+            utcnow = datetime.datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S.000Z')
+            utcbefore = (datetime.datetime.utcnow()-datetime.timedelta(hours=24)).strftime('%Y-%m-%dT%H:%M:%S.000+00')
+
+            time_string = f'{utcnow}--{utcbefore}'
+            
+            # coord_set = "51.5073219,-0.1276474+51.5073219,-0.1276474"
+            # time = '2022-12-22T01:55:00.000+00:00--2022-12-22T02:05:00.000+00:00:PT15M'
+
+            api = f'https://api.meteomatics.com/{time_string}/wind_speed_100m:ms,wind_dir_10m:d,msl_pressure:hPa,t_100m:C,wind_gusts_100m_1h:ms/{coord_set}/json?route=true'
+            
+            auth = HTTPBasicAuth(api_user,api_password)
+
+            logger.debug(f'URL = "{api}"')
+            result = requests.get(api, auth=auth).json()
+
+            #TODO: Parse weather data
+
+            # Enrich meters object with data
+
+            return meters
+        except Exception as e:
+            logger.error(f"'{e}' when quering API")
+            return
 
     def _get_wind_openwheathermap(self):
         """
@@ -371,7 +443,8 @@ def main(config_file):
 
     api_provider = config['API']['api_provider']
     api_url = config['API']['api_url']
-    
+    mass = config['API']['Mass']
+
     api_key, api_user, api_password = None, None, None
 
     if api_provider == 'meteomatics':
@@ -425,6 +498,26 @@ def main(config_file):
                 last_runs[meter_id] = check
 
         if len(meters_to_process) > 0:
+
+            if mass:
+
+                # Query in batches
+                # curl -su user:pass https://api.meteomatics.com/2022-12-18T01Z,2022-12-18T01Z,2022-12-18T01Z/wind_speed_2m:ms,wind_dir_10m:d,msl_pressure:hPa,t_2m:C,wind_gusts_100m_1h:ms/47.412164,9.340652+47.512164,9.44065+47.912164,9.94065/json?route=true
+
+                # 1. Make a request for all meters
+                # 2. Enrich the meter object and set a flag not to query the api
+                # 3. Process each data individually in regular thread                
+
+                result = VirtualMeter.get_wind_many(api_user, api_password, meters_to_process, logger)
+
+                if result:
+
+                    # Enrich the object
+                    meters_to_process = result
+                else:
+                    logger.warn(f'Unable to process get_wind_many')
+                    continue
+
             with concurrent.futures.ThreadPoolExecutor() as executor:
                 for meter in meters_to_process:
                     executor.submit(process_wind, 
@@ -437,6 +530,7 @@ def main(config_file):
                     api_url=api_url, 
                     api_provider=api_provider
                     )
+
         else:
             # To decrease CPU usage
             time.sleep(0.05)
