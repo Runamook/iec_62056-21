@@ -400,7 +400,7 @@ class Meter:
                             72.7.0(229.41)<CR><LF>
                             31.7.0(0.498A)<CR><LF>
                 """
-                id_message = self._sendcmd(cmd, etx=self.LF).decode()
+                id_message = self._sendcmd_and_decode_response(cmd, etx=self.LF)
                 if 'B0' in id_message:
                     self.log('WARN', 'Meter ended communication')
                     sys.exit(1)
