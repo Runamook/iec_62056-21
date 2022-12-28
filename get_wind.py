@@ -10,7 +10,7 @@ import pathlib
 import requests
 import pandas as pd
 from windpowerlib import ModelChain, WindTurbine
-import iec6205621.inserter as i
+import iec6205621.inserter as iec_inserter
 from requests.auth import HTTPBasicAuth
 
 
@@ -71,6 +71,8 @@ class VirtualMeter:
             self.logger.error(f'Missing coordinates. lat: "{self.lat}", lon: "{self.lon}"')
             sys.exit(1)
 
+        self.api_mass = meter.get('API_mass') or False
+        self.meter = meter
         if self.api_provider == 'meteomatics':
 
             # dt.now().strftime('%Y-%m-%dT%H:%M:%S.000+01:00')
@@ -88,8 +90,10 @@ class VirtualMeter:
         self.result = {'weather_data': None, 'power': None, 'error_code': 0, 'error_text': None}
 
     @staticmethod
-    def get_wind_many(api_user, api_password, meters, logger):
+    def get_wind_many(api_user, api_password, meters, logger, hours=24):
         """
+        Queries wheather data for the last X hours for all meters in the list.
+        Returns meter data enriched with the wheather, per location 
         meters = [
             {
                 'id': 23, 
@@ -128,34 +132,87 @@ class VirtualMeter:
         try:
             # Create coord_set from input metes
             coord_set = ''
+            result_data = {}
 
             for meter in meters:
                 lat = meter['latitude']
                 lon = meter['longitude']
                 coord_set += f'{lat},{lon}+'
+
+                # Template for result storage
+                result_data[f'{lat}:{lon}'] = { 'meter_id': meter['meter_id'] }
+
             coord_set = coord_set.rstrip('+')
             
             # Request data
             utcnow = datetime.datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S.000Z')
-            utcbefore = (datetime.datetime.utcnow()-datetime.timedelta(hours=24)).strftime('%Y-%m-%dT%H:%M:%S.000+00')
 
-            time_string = f'{utcnow}--{utcbefore}'
+            hours = int(hours)
+            utcbefore = (datetime.datetime.utcnow()-datetime.timedelta(hours=hours)).strftime('%Y-%m-%dT%H:%M:%S.000+00')
+
+            time_string = f'{utcbefore}--{utcnow}'
             
             # coord_set = "51.5073219,-0.1276474+51.5073219,-0.1276474"
+
+            # Every 15 minutes for the last {hours} hours
             # time = '2022-12-22T01:55:00.000+00:00--2022-12-22T02:05:00.000+00:00:PT15M'
 
-            api = f'https://api.meteomatics.com/{time_string}/wind_speed_100m:ms,wind_dir_10m:d,msl_pressure:hPa,t_100m:C,wind_gusts_100m_1h:ms/{coord_set}/json?route=true'
-            
+            api = f'https://api.meteomatics.com/{time_string}:PT15M/wind_speed_2m:ms,wind_dir_10m:d,msl_pressure:hPa,t_2m:C,wind_gusts_100m_1h:ms/{coord_set}/json?model=mix'
+
             auth = HTTPBasicAuth(api_user,api_password)
 
-            logger.debug(f'URL = "{api}"')
+            logger.debug(f'URL for all = "{api}"')
             result = requests.get(api, auth=auth).json()
+            logger.debug(f'Result = "{result}"')
 
-            #TODO: Parse weather data
+            for data_set in result['data']:
+                measurement_name = data_set['parameter']
+                # wind_speed_2m:ms
+                # wind_dir_10m:d
+                # msl_pressure:hPa
+                # t_2m:C
+                # wind_gusts_100m_1h:ms
 
+                for measurement in data_set['coordinates']:
+                    # {'lat': 53.507322, 'lon': -3.127647, 'dates': [{'date': '2022-12-25T01:55:00Z', 'value': 4.7}, {'date': '2022-12-25T02:10:00Z', 'value': 4.7}, {'date': '2022-12-25T02:25:00Z', 'value': 4.7}]}
+                    lat = measurement['lat']
+                    lon = measurement['lon']
+
+                    result_data[f'{lat}:{lon}'][measurement_name] = []
+
+                    for value_pair in measurement['dates']:
+
+                        # {'date': '2022-12-25T02:25:00Z', 'value': 4.7}
+                        # {'53.507322:-3.127647': { 'meter_id': "12345678", 'wind_speed_2m:ms':  [{'date': '2022-12-25T02:25:00Z', 'value': 4.7},{},{}]}
+                        result_data[f'{lat}:{lon}'][measurement_name].append(value_pair)
+
+            
             # Enrich meters object with data
+            meters_enriched = []
+            for meter in meters:
+                meter_enriched = dict()
+                lat = meter['latitude']
+                lon = meter['longitude']
 
-            return meters
+                # [{'date': '2022-12-25T02:25:00Z', 'value': 4.7},{},{}]
+                wind_speed = result_data[f'{lat}:{lon}']['wind_speed_2m:ms']
+                wind_dir_10m = result_data[f'{lat}:{lon}']['wind_dir_10m:d']
+                msl_pressure = result_data[f'{lat}:{lon}']['msl_pressure:hPa']
+                t_2m = result_data[f'{lat}:{lon}']['t_2m:C']
+                wind_gusts_100m_1h = result_data[f'{lat}:{lon}']['wind_gusts_100m_1h:ms']
+
+                meter_enriched = meter
+                meter_enriched['wind_speed'] = wind_speed
+                meter_enriched['wind_dir_10m'] = wind_dir_10m
+                meter_enriched['msl_pressure'] = msl_pressure
+                meter_enriched['t_2m'] = t_2m
+                meter_enriched['wind_gusts_100m_1h'] = wind_gusts_100m_1h
+                meter_enriched['API_mass'] = True
+
+                meters_enriched.append(meter_enriched)
+                logger.debug(f'Meter_enriched: "{meter_enriched}"')
+            return meters_enriched
+
         except Exception as e:
             logger.error(f"'{e}' when quering API")
             return
@@ -241,11 +298,13 @@ class VirtualMeter:
 
         try:
 
-            if self.api_provider == 'meteomatics':
+            if self.api_mass:
+                # The data was queried already
+                pass
+            elif self.api_provider == 'meteomatics':
                 # curl -su user:pass https://api.meteomatics.com/2022-11-26T00:00:00Z--2022-11-26T01:00:00Z:PT15M/wind_power_turbine_vestas_v90_2000_hub_height_110m:MW/53.645859,5.449016/json | json_pp
                 # meteomatics can return power
                 self._get_wind_meteomatics()
-
             else:
                 self._get_wind_openwheathermap()
 
@@ -266,26 +325,47 @@ class VirtualMeter:
             # height,0,2,10,0
             # 2010-01-01 00:00:00+01:00,98405.7,267.6,5.32697,0.15
 
-            now = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S%z')
-            pressure = self.result['weather_data']['main']['pressure']
-            temp = self.result['weather_data']['main']['temp']
-            wind_speed = self.result['weather_data']['wind']['speed']
-
             f = f'/tmp/meter_{self.meter_id}'
-            with open(f, 'w') as fout:
-                lines = []
-                lines.append(f'variable_name,pressure,temperature,wind_speed,roughness_length\r\n')
-                lines.append(f'height,0,2,10,0\r\n')
+            lines = []
+            lines.append(f'variable_name,pressure,temperature,wind_speed,roughness_length\r\n')
+            lines.append(f'height,0,2,10,0\r\n')
+
+            if not self.api_mass:
+                now = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S%z')
+                pressure = self.result['weather_data']['main']['pressure']
+                temp = self.result['weather_data']['main']['temp']
+                wind_speed = self.result['weather_data']['wind']['speed']
                 lines.append(f'{now},{pressure},{temp},{wind_speed},{self.roughness_length}\r\n')
 
+            else:
+                # meter[measurement].[value_pair, value_pair]
+                # {'date': '2022-12-25T02:25:00Z', 'value': 4.7}
+                # wind_speed
+                # wind_dir_10m
+                # msl_pressure
+                # t_2m
+                # wind_gusts_100m_1h
+
+                if len(self.meter['wind_speed']) != len(self.meter['msl_pressure']) or len(self.meter['wind_speed']) != len(self.meter['t_2m']):
+                    self.logger.warn(f'Different length of wheather data, please check\n {self.meter}')
+                for i in range(len(self.meter['wind_speed'])):
+                    now = self.meter['wind_speed'][i]['date'].replace('T',' ').rstrip('Z')
+                    wind_speed = self.meter['wind_speed'][i]['value']
+                    pressure = self.meter['msl_pressure'][i]['value']
+                    temp = self.meter['t_2m'][i]['value']
+                    lines.append(f'{now},{pressure},{temp},{wind_speed},{self.roughness_length}\r\n')
+
+            self.logger.debug(f'Data for power calculation: {lines}')
+            with open(f, 'w') as fout:
                 for line in lines:
-                    fout.write(line)
+                    fout.write(line)                   
 
             self.weather = pd.read_csv(
                 f,
                 index_col=0,
                 header=[0, 1],
                 date_parser=lambda idx: pd.to_datetime(idx, utc=True))
+            #self.logger.debug(self.weather)
             # weather_df.index = weather_df.index.tz_convert('Europe/Berlin')
 
         except Exception as e:
@@ -323,8 +403,19 @@ class VirtualMeter:
         # initialize ModelChain with default parameters and use run_model method to calculate power output
         mc = ModelChain(self.turbine).run_model(self.weather)
         # write power output time series to WindTurbine object
+
         self.turbine.power_output = mc.power_output
-        self.result['power'] = int(self.turbine.power_output.values[0]) / 1000
+        if self.api_mass:
+            # Mass calculation returns a list of values
+            # One can iterate over it and get the power
+            # for i in t.power_output.values:
+            #    print(i/1000) 
+            self.result['power'] = self.turbine.power_output.values
+
+        else:
+            self.result['power'] = int(self.turbine.power_output.values[0]) / 1000
+
+        self.logger.debug(f'{self.meter_id} Power: {self.result["power"]}')
 
         """
         if self.turbine.power_output.value_counts() != 1:
@@ -335,6 +426,8 @@ class VirtualMeter:
         else:
             self.result['power'] = self.turbine.power_output.values[0]
         """
+        return
+
 
 def check_error(vmeter,logger, meter):
     if vmeter.result['error_code'] != 0:
@@ -344,6 +437,12 @@ def check_error(vmeter,logger, meter):
 
 
 def process_wind(meter, logger: logging.Logger, db, api_key=None, api_user=None, api_password=None, api_url=None, api_provider=None):
+    '''
+    Meta function
+    Gathers wind data (one or many) and inserts it to redis
+    '''
+    
+    
     meter_id = meter['meter_id']
 
     vmeter = VirtualMeter(meter, logger, api_key, api_user, api_password, api_url, api_provider)
@@ -358,22 +457,93 @@ def process_wind(meter, logger: logging.Logger, db, api_key=None, api_user=None,
     #logger.debug('3')
     check_error(vmeter, logger, meter)
 
-    logger.debug(f"Wind: {vmeter.result['weather_data']['wind']['speed']}, power: {vmeter.result['power']}")
+    if vmeter.api_mass:
+        # Wind data is stored in vmeter.meter['key see below'] as a list of dicts 
+        # wind_speed_2m
+        # wind_dir_10m
+        # msl_pressure
+        # t_2m
+        # wind_gusts_100m_1h
+        # 't_2m' : [{'date': '2022-12-27T21:44:59Z', 'value': 15.0}, {}, {}]
 
-    # [('org:10179636_1611222547', [{'id': '0.0.0', 'value': '1', 'unit': None, 'line_time': 'epoch'}, ... {}]) ... ()]
-    parsed_data = [
-        {"id": '99.99.96', "value": vmeter.result['weather_data']['main']['pressure'], "unit": "hPa"},
-        {"id": '99.99.97', "value": vmeter.result['weather_data']['main']['temp'], "unit": "C"},
-        {"id": '99.99.98', "value": vmeter.result['weather_data']['wind']['speed'], "unit": "m/s"},
-        {"id": '99.99.99', "value": vmeter.result['power'], "unit": "kW"},
-        {"id": '99.99.100', "value": vmeter.result['weather_data']['wind']['deg'], "unit": "degree"},
-        {"id": '99.99.101', "value": vmeter.result['weather_data']['wind']['gust'], "unit": "m/s"}
-        ]
-    # Push data somewhere
-    # ['org', '10067967', 1649100604, 'wind']
-    meter_ts = [meter["org"].lower(), meter_id, int(time.time()), 'wind']
-    inserter = i.Inserter(logger=logger, meter_ts=meter_ts)
-    inserter.insert(parsed_data)
+        # Power data is stored in vmeter.result['power'] as a list of values [1.001, 2.002, ...]
+
+        measurement_names = {
+            'wind_speed': ('99.99.96','m/s'),
+            'wind_dir_10m': ('99.99.97','degree'),
+            'msl_pressure': ('99.99.98','hPa'),
+            't_2m': ('99.99.100','C'),
+            'wind_gusts_100m_1h': ('99.99.101','m/s')
+            }
+
+        time_stamps = []
+        parsed_data = []
+
+        try:
+            for measurement in measurement_names.keys():
+                logger.debug(f"Result {measurement}: {vmeter.meter[measurement]}")
+
+                for value_pair in vmeter.meter[measurement]:
+                    logger.debug(f"{vmeter.meter_id} Measurement: {measurement}, VP: {value_pair}")
+                    # [{'id': '0.0.0', 'value': '1', 'unit': None, 'line_time': 'epoch'}, ... {}]
+                    # TODO: Seems like something is not correct with epoch time conversion
+                    # This is totaly ugly but I'm out of ideas
+                    # https://stackoverflow.com/questions/74945974/python-timezone-processing
+                    line_time = int(datetime.datetime.strptime(value_pair['date'], '%Y-%m-%dT%H:%M:%S%z').strftime('%s')) + 3600
+
+                    parsed_data.append(
+                        {
+                            "id": measurement_names[measurement][0], 
+                            "value": value_pair['value'], 
+                            "unit": measurement_names[measurement][1], 
+                            "line_time": line_time
+                            })
+
+                    if measurement == 'wind_speed':
+                        # Construct ts list for power measurement
+                        time_stamps.append(line_time)
+
+
+            for i in  range(len(vmeter.result['power'])):
+                
+                # TODO: How is the power is returned LE or BE?
+                power = str(vmeter.result['power'][i])
+                line_time = time_stamps[i]
+                #logger.debug(f"Power {power}")
+
+                parsed_data.append(
+                    {
+                        "id": "99.99.99",
+                        "value": power, 
+                        "unit": "kW", 
+                        "line_time": line_time
+                        })
+
+            # Push data
+            meter_ts = [meter["org"].lower(), meter_id, int(time.time()), 'wind']
+            inserter = iec_inserter.Inserter(logger=logger, meter_ts=meter_ts)
+            inserter.insert(parsed_data)       
+        except Exception as e:
+            logger.error(f"Something went wrong {e}")
+
+
+    else:
+        logger.debug(f"Wind: {vmeter.result['weather_data']['wind']['speed']}, power: {vmeter.result['power']}")
+
+        # [('org:10179636_1611222547', [{'id': '0.0.0', 'value': '1', 'unit': None, 'line_time': 'epoch'}, ... {}]) ... ()]
+        parsed_data = [
+            {"id": '99.99.96', "value": vmeter.result['weather_data']['main']['pressure'], "unit": "hPa"},
+            {"id": '99.99.97', "value": vmeter.result['weather_data']['main']['temp'], "unit": "C"},
+            {"id": '99.99.98', "value": vmeter.result['weather_data']['wind']['speed'], "unit": "m/s"},
+            {"id": '99.99.99', "value": vmeter.result['power'], "unit": "kW"},
+            {"id": '99.99.100', "value": vmeter.result['weather_data']['wind']['deg'], "unit": "degree"},
+            {"id": '99.99.101', "value": vmeter.result['weather_data']['wind']['gust'], "unit": "m/s"}
+            ]
+        # Push data somewhere
+        # ['org', '10067967', 1649100604, 'wind']
+        meter_ts = [meter["org"].lower(), meter_id, int(time.time()), 'wind']
+        inserter = iec_inserter.Inserter(logger=logger, meter_ts=meter_ts)
+        inserter.insert(parsed_data)
 
 class MeterDB:
 
@@ -431,7 +601,6 @@ def read_cfg(config_file):
     return config
 
 
-
 def main(config_file):
     """
     Loop over the list of meters from DB
@@ -443,7 +612,15 @@ def main(config_file):
 
     api_provider = config['API']['api_provider']
     api_url = config['API']['api_url']
-    mass = config['API']['Mass']
+
+    # Mass processing
+    if config['API']['Mass'] == 'True':
+        mass = True
+    else:
+        mass = False
+
+    if mass:
+        hours = config['API']['hours_to_read']
 
     api_key, api_user, api_password = None, None, None
 
@@ -508,14 +685,14 @@ def main(config_file):
                 # 2. Enrich the meter object and set a flag not to query the api
                 # 3. Process each data individually in regular thread                
 
-                result = VirtualMeter.get_wind_many(api_user, api_password, meters_to_process, logger)
+                result = VirtualMeter.get_wind_many(api_user, api_password, meters_to_process, logger, hours)
 
                 if result:
 
                     # Enrich the object
                     meters_to_process = result
                 else:
-                    logger.warn(f'Unable to process get_wind_many')
+                    logger.warning(f'Unable to process get_wind_many')
                     continue
 
             with concurrent.futures.ThreadPoolExecutor() as executor:
