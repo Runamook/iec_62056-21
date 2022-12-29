@@ -467,12 +467,11 @@ def process_wind(meter, logger: logging.Logger, db, api_key=None, api_user=None,
         # 't_2m' : [{'date': '2022-12-27T21:44:59Z', 'value': 15.0}, {}, {}]
 
         # Power data is stored in vmeter.result['power'] as a list of values [1.001, 2.002, ...]
-
         measurement_names = {
-            'wind_speed': ('99.99.96','m/s'),
-            'wind_dir_10m': ('99.99.97','degree'),
-            'msl_pressure': ('99.99.98','hPa'),
-            't_2m': ('99.99.100','C'),
+            'wind_speed': ('99.99.98','m/s'),
+            'wind_dir_10m': ('99.99.100','degree'),
+            'msl_pressure': ('99.99.96','hPa'),
+            't_2m': ('99.99.97','C'),
             'wind_gusts_100m_1h': ('99.99.101','m/s')
             }
 
@@ -509,7 +508,7 @@ def process_wind(meter, logger: logging.Logger, db, api_key=None, api_user=None,
                 # TODO: How is the power is returned LE or BE?
                 power = str(vmeter.result['power'][i])
                 line_time = time_stamps[i]
-                #logger.debug(f"Power {power}")
+                logger.debug(f"Power: {power} {line_time}")
 
                 parsed_data.append(
                     {
