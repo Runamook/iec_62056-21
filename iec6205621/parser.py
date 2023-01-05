@@ -5,8 +5,11 @@ import datetime
 class Parser:
 
     # Everything from the beginning to the first parenthesis
-    re_id = re.compile('^(.+?)[(]')
+    # re_id = re.compile('^(.+?)[(]')
+    #  Old expression do not capture values like 1-0:31.7.0(2.414*A)
+    re_id = re.compile('^(.*?:)?(.+?)[(]')
     # Integer from opening parenthesis until the closing or until the asterisk. Maybe there is a minus in the beginning
+    re_value1 = re.compile('[(](-?[0-9]+\\.?[0-9]*)\\*?.*[)]')
     re_value1 = re.compile('[(](-?[0-9]+\\.?[0-9]*)\\*?.*[)]')
     # Alphanumeric from the opening parenthesis to the closing
     re_value2 = re.compile('^.+?[(](\w+)[)]$')
@@ -240,7 +243,8 @@ class Parser:
                     'unit': None
                 }
                 try:
-                    parsed_line['id'] = Parser.re_id.search(line).groups()[0]
+                    # re_id may return one or two groups - actual OBIS would be in the last
+                    parsed_line['id'] = Parser.re_id.search(line).groups()[-1]
 
                     if '*' in parsed_line['id']:
                         # Skip history data like
@@ -287,6 +291,13 @@ class Parser:
         81.7.26(-178.0*deg)
         !
 
+        Add
+        1-0:72.7.0(58.28*V)^M
+        1-0:71.7.0(2.408*A)^M
+        1-0:81.7.0(0.0*deg)^M
+        1-0:81.7.2(-120.1*deg)^M
+        1-0:14.7.0(0.04995*kHz)^M
+
         :return:
         """
         pre_parsed = self._find_data_blocks()
@@ -299,7 +310,8 @@ class Parser:
                     'unit': None
                 }
                 try:
-                    parsed_line['id'] = Parser.re_id.search(line).groups()[0]
+                    # re_id may return one or two groups - actual OBIS would be in the last
+                    parsed_line['id'] = Parser.re_id.search(line).groups()[-1]
                     if Parser.re_value1.search(line):
                         # TODO: WARNING re matches 'C.90.2(70D4EF6C)' value as '70'
                         # TODO: WARNING re matches '0.0.0(1EMH0010134075)' value as '1'
@@ -730,7 +742,15 @@ class Parser:
 
     def _find_data_blocks(self):
 
-
+        '''
+        Fix 
+        1-0:72.7.0(58.28*V)
+        1-0:71.7.0(2.408*A)
+        1-0:81.7.0(0.0*deg)
+        1-0:81.7.2(-120.1*deg)
+        1-0:14.7.0(0.04995*kHz)
+        
+        '''
         splitted_data = self.unparsed_data.split('\r\n')
         
         # Table 1 provides F.F error register in the first line,
@@ -739,8 +759,11 @@ class Parser:
             splitted_data = splitted_data[1:]
 
         pre_parsed = dict()
-        # TODO: Parse MetCom line 1.6.1(0.00061*kW)(2101021645)
-        re_list_pattern1 = re.compile('^\w+\\.\w.*?[(].*?[)]')
+        
+        # Old pattern
+        # re_list_pattern1 = re.compile('^\w+\\.\w.*?[(].*?[)]')
+
+        re_list_pattern1 = re.compile('^(.+?-.+?:)?\w+\\.\w.*?[(].*?[)]')
         p01_started = False
 
         try:

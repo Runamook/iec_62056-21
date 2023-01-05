@@ -485,10 +485,7 @@ def process_wind(meter, logger: logging.Logger, db, api_key=None, api_user=None,
                 for value_pair in vmeter.meter[measurement]:
                     logger.debug(f"{vmeter.meter_id} Measurement: {measurement}, VP: {value_pair}")
                     # [{'id': '0.0.0', 'value': '1', 'unit': None, 'line_time': 'epoch'}, ... {}]
-                    # TODO: Seems like something is not correct with epoch time conversion
-                    # This is totaly ugly but I'm out of ideas
-                    # https://stackoverflow.com/questions/74945974/python-timezone-processing
-                    line_time = int(datetime.datetime.strptime(value_pair['date'], '%Y-%m-%dT%H:%M:%S%z').strftime('%s')) + 3600
+                    line_time = int(datetime.datetime.strptime(value_pair['date'], '%Y-%m-%dT%H:%M:%S%z').timestamp())
 
                     parsed_data.append(
                         {
@@ -506,7 +503,7 @@ def process_wind(meter, logger: logging.Logger, db, api_key=None, api_user=None,
             for i in  range(len(vmeter.result['power'])):
                 
                 # TODO: How is the power is returned LE or BE?
-                power = str(vmeter.result['power'][i])
+                power = str(int(vmeter.result['power'][i])/1000)
                 line_time = time_stamps[i]
                 logger.debug(f"Power: {power} {line_time}")
 
