@@ -298,6 +298,10 @@ class Parser:
         1-0:81.7.2(-120.1*deg)^M
         1-0:14.7.0(0.04995*kHz)^M
 
+        TODO: 1-0:1.8.0(00000391.3*Wh)^M\r\n
+
+
+        
         :return:
         """
         pre_parsed = self._find_data_blocks()

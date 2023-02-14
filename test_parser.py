@@ -94,6 +94,9 @@ class IECTest(unittest.TestCase):
     # Metcom table1
     Table1_data = 'F.F(00000000)\r\n0.0.0(10067967)\r\n0.0.1(10067967)\r\n0.9.1(202405)\r\n0.9.2(221113)\r\n0.1.0(12)\r\n0.1.2(2211010000)\r\n0.1.2*12(2211010000)\r\n0.1.2*11(2210010000)\r\n0.1.2*10(2209010000)\r\n1.6.1(0.50262*kW)(2211120730)\r\n1.6.1*12(0.39912*kW)(2210130900)\r\n1.6.1*11(0.74906*kW)(2209281400)\r\n1.6.1*10(0.49578*kW)(2208111330)\r\n2.6.1(0.00000*kW)(2211010000)\r\n2.6.1*12(0.00000*kW)(2210010000)\r\n2.6.1*11(0.00000*kW)(2209010000)\r\n2.6.1*10(0.00000*kW)(2208010000)\r\n1.8.0(01281.6601*kWh)\r\n'
 
+    # Metcom table2 CEC
+    Table2_data_1 = '1-0:1.8.0(00000391.3*Wh)^M\r\n1-0:2.8.0(00366818.9*Wh)^M\r\n1.7.0(0.00000*kW)^M\r\n2.7.0(0.00287*kW)^M\r\n3.7.0(0.00187*kvar)^M\r\n4.7.0(0.00000*kvar)^M\r\n13.7.0(0.000315*k)^M\r\n33.7.0(0.000327*k)^M\r\n53.7.0(0.000316*k)^M\r\n73.7.0(0.000304*k)^M\r\n21.7.0(0.00000*kW)^M\r\n22.7.0(0.00094*kW)^M\r\n41.7.0(0.00000*kW)^M\r\n42.7.0(0.00104*kW)^M\r\n61.7.0(0.00000*kW)^M\r\n62.7.0(0.00088*kW)^M\r\n1-0:32.7.0(57.90*V)^M\r\n1-0:52.7.0(57.86*V)^M\r\n1-0:72.7.0(58.10*V)^M\r\n1-0:31.7.0(0.050*A)^M\r\n1-0:51.7.0(0.057*A)^M\r\n1-0:71.7.0(0.050*A)^M\r\n90.7.0(0.157*A)^M\r\n1-0:81.7.0(0.0*deg)^M\r\n1-0:81.7.1(119.7*deg)^M\r\n1-0:81.7.2(-120.1*deg)^M\r\n1-0:81.7.4(145.0*deg)^M\r\n1-0:81.7.15(151.4*deg)^M\r\n1-0:81.7.26(149.7*deg)^M\r\n1-0:14.7.0(0.05000*kHz)^M\r\n9.7.0(0.00000*kVA)^M\r\n1-0:10.7.0(0.00239*kVA)^M\r\n!^M\r\n'
+
     def test_parseP01_1(self):
         p = parser.Parser(raw_data=IECTest.P01_data_1, data_type='P.01', logger=logger, **IECTest.meter_emh)
         p._parseP01()
@@ -144,6 +147,13 @@ class IECTest(unittest.TestCase):
         p._parse_list1()
         p.log('DEBUG', f'\n\n{p.parsed_data}')
         self.assertEqual(len(p.parsed_data), 10, 'Parse MCS Table1 failed')
+
+    def test_parseMcsTable2(self):
+        p = parser.Parser(raw_data=IECTest.Table2_data_1, data_type='list2', logger=logger, **IECTest.meter_metcom)
+        #p.log('DEBUG', p.unparsed_data)
+        p._parse_list2()
+        p.log('DEBUG', f'\n\n{p.parsed_data}')
+        self.assertEqual(len(p.parsed_data), 31, 'Parse MCS Table2 failed')
 
 
 
