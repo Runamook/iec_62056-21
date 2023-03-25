@@ -727,8 +727,19 @@ class Parser:
                     line = line.split('(')
                     line.pop(0)
                     if len(line) != z:
+                        # Sometimes meter can send something like this
+                        # (0.46768)(0.00000)(0.00000)(0.00000)(0.00000)(0.11689)^M
+                        # (0.70519)(0.00000)(0.00000)(0.00000)(0.00000)(0.1530.38921)(0.00000)(0.00000)(0.00000)(0.00000)(0.12339)^M
+                        # (0.33181)(0.00000)(0.00000)(0.00000)(0.00000)(0.09438)^M
+
+                        # Line 2 is obviously wrong per se. But value 6 is also incorrect
+
                         self.log('ERROR', f'Expected z={z} values, found {len(line)} in line "{line}"')
-                        sys.exit(1)
+                        # sys.exit(1)
+                        new_line = line[:5]
+                        new_line.append(line[-1])
+                        line = new_line[:]
+                        self.log('DEBUG', f'Line modified to "{line}"')
 
                     for i in range(z):
                         parsed_line = {
