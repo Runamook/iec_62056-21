@@ -726,20 +726,37 @@ class Parser:
 
                     line = line.split('(')
                     line.pop(0)
-                    if len(line) != z:
-                        # Sometimes meter can send something like this
+                    if len(line) > z:
+                        # Metcom: Sometimes meter can send something like this
                         # (0.46768)(0.00000)(0.00000)(0.00000)(0.00000)(0.11689)^M
                         # (0.70519)(0.00000)(0.00000)(0.00000)(0.00000)(0.1530.38921)(0.00000)(0.00000)(0.00000)(0.00000)(0.12339)^M
                         # (0.33181)(0.00000)(0.00000)(0.00000)(0.00000)(0.09438)^M
 
-                        # Line 2 is obviously wrong per se. But value 6 is also incorrect
+                        # Line 2 is obviously wrong per se. But value 6 is also inconsistent: (0.1530.38921)
 
-                        self.log('ERROR', f'Expected z={z} values, found {len(line)} in line "{line}"')
-                        # sys.exit(1)
+                        self.log('ERROR', f'Expected z={z} values, found more:{len(line)} in line "{line}"')
                         new_line = line[:5]
                         new_line.append(line[-1])
                         line = new_line[:]
-                        self.log('DEBUG', f'Line modified to "{line}"')
+                        self.log('DEBUG', f'Line modified to "{line}". THAT MIGHT INTRODUCE INCORRECT DATA')
+
+                    elif len(line) < z:
+                        self.log('ERROR', f'Expected z={z} values, found less:{len(line)} in line "{line}"')
+                        if len(line) == 5:
+                            # Metcom: Another variant, third element also inconsistent: (0.00005)31)
+                            # (0.00000)(0.02815)(0.00006)(0.08319)(0.00000)(0.00000)^M
+                            # (0.00001)(0.02361)(0.00005)31)(0.00000)(0.00000)^M
+                            # (0.00000)(0.02723)(0.00000)(0.08476)(0.00000)(0.00000)^M
+                            
+                            new_line = list()
+                            for element in line:
+                                new_line.append(f"{element.split(')')[0]})")
+                            new_line.append('0.00000)\r')
+                            line = new_line[:]
+                        else:
+                            sys.exit(1)
+
+                        self.log('DEBUG', f'Line modified to "{line}". THAT MIGHT INTRODUCE INCORRECT DATA')
 
                     for i in range(z):
                         parsed_line = {
