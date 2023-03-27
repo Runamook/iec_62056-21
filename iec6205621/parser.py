@@ -726,6 +726,12 @@ class Parser:
 
                     line = line.split('(')
                     line.pop(0)
+
+                    """
+                    # When it works incorrectly - messes up all the data
+                    # Fix on meter side
+                    # (0.00000)(0.71671)(0.00000)(0.1P.01(1230326173000)(08)(15)(6)(1-0:1.5.0)(kW)(1-0:2.5.0)(kW)(1-0:5.5.0)(kvar)(1-0:6.5.0)(kvar)(1-0:7.5.0)(kvar)(1-0:8.5.0)(kvar)
+
                     if len(line) > z:
                         # Metcom: Sometimes meter can send something like this
                         # (0.46768)(0.00000)(0.00000)(0.00000)(0.00000)(0.11689)^M
@@ -757,7 +763,11 @@ class Parser:
                             sys.exit(1)
 
                         self.log('DEBUG', f'Line modified to "{line}". THAT MIGHT INTRODUCE INCORRECT DATA')
-
+                    """
+                    if len(line) != z:
+                        self.log('ERROR', f'Expected z={z} values, found {len(line)} in line "{line}"')
+                        sys.exit(1)
+                    
                     for i in range(z):
                         parsed_line = {
                             'id': ids[i],
