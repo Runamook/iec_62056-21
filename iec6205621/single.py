@@ -164,13 +164,6 @@ except Exception as e:
     print(f'\nERROR: Unable to parse provided socket: "{args.socket}"\nPlease define it as "socket://IP:port"\n\n')
     sys.exit(1)
 
-
-if args.host:
-    m['ip_address'] = args.host
-if args.port:
-    m['port'] = args.port
-
-    
 if args.password:
     m['password'] = args.password
 else:

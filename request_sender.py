@@ -10,6 +10,7 @@ import sys
 import os
 import pathlib
 import datetime
+import json
 
 
 # (Re)Reads meters from Postgres
@@ -169,11 +170,12 @@ class MeterDB:
             self.logger.error(f'Error "{e}" during meter {data_type} update, last query = "{query}"')
 
         return
-
+    
     def get_meters_from_pg(self, request):
         """
         Get only meters, which shall be queried for load profile or list/table
         Return list of meters
+        If the database is not available - return a list from file cash, if exists
         :param pg_password: pass
         :param pg_user: user
         :argument request: str like 'p01', 'p98', 'list1' etc
@@ -186,6 +188,7 @@ class MeterDB:
         """
         query = f'SELECT row_to_json(m) FROM (\
         SELECT * FROM {self.pg_schema}.meters INNER JOIN {self.pg_schema}.queries ON meters.id = queries.id WHERE queries.{request} > 0 and meters.is_active = True) m;'
+        cash_file_name = f'/tmp/meters_{self.pg_schema}_{request}'
 
         try:
             self.logger.info(f'Query: {query}')
@@ -193,15 +196,28 @@ class MeterDB:
             result = []
             for meter in query_result:
                 meter = meter[0]
-                # meter['last_run'] = 0
                 result.append(meter)
             self.logger.info(f'{len(result)} meters found in DB:')
             for i in result:
                 self.logger.info(i)
+
+            # Write result into file cash
+            with open(cash_file_name, 'w') as cash_file:
+                self.logger.info(f'Writing cash file {cash_file_name}')
+                cash_file.write(json.dumps(result))
             return result
         except Exception as e:
             self.logger.error(e)
-            sys.exit(1)
+            # Check if cash file exists
+            if os.path.isfile(cash_file_name):
+                with open(cash_file_name, 'r') as cash_file:
+                    self.logger.info(f'Cash file found at {cash_file_name}')
+                    result = cash_file.read()
+                    return json.loads(result)
+            else:
+                # No file exists
+                self.logger.info(f'Cash file NOT found at {cash_file_name}')
+                sys.exit(1)
 
 
 def process_data(meter, logger: logging.Logger, data_id, db: MeterDB =None):
@@ -355,6 +371,7 @@ def main(config_file):
     data_id = config['DEFAULT']['data_id'].lower()
 
     last_runs = dict()
+
     db = MeterDB(logger, **config['DB'])
 
     while True:
@@ -369,7 +386,21 @@ def main(config_file):
                 sys.exit(1)
                 
             # Re-read meters from DB every minute
-            meters_in_db = db.get_meters_from_pg(data_id)
+
+            if 'db' in locals() or 'db' in globals():
+                # Variable is defined - use instanse method
+                meters_in_db = db.get_meters_from_pg(data_id)
+            else:
+                # Variable not defined - DB object instantination issues - read file
+                cash_file_name = f'/tmp/meters_{config["DB"]["pg_schema"]}_{data_id}'
+                if os.path.isfile(cash_file_name):
+                    with open(cash_file_name, 'r') as cash_file:
+                        logger.info(f'Cash file found at {cash_file_name}')
+                        meters_in_db = json.loads(cash_file.read())
+                else:
+                    logger.info(f'DB not available and no cash file found at {cash_file_name}')
+                    sys.exit(1)
+
             config_timer = time.time() // 60
 
         try:
@@ -384,7 +415,9 @@ def main(config_file):
             sys.exit(1)
 
         meters_to_process = []                  # These meters will be subject to processing 
-        # Run the main loop
+        
+        # Iterate over meter list
+        # Pick ones to be processed in current cycle
         for meter in meters_in_db:
             meter_id = meter['meter_id']
             check = time.time() // meter[data_id]

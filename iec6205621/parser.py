@@ -315,7 +315,21 @@ class Parser:
                 }
                 try:
                     # re_id may return one or two groups - actual OBIS would be in the last
-                    parsed_line['id'] = Parser.re_id.search(line).groups()[-1]
+                    # Filter out results with '..', '/', count('.') != 2
+                    
+                    id_line = Parser.re_id.search(line).groups()[-1]
+
+                    if id_line in ['1-1:1.29','1-1:2.29','1-1:5.29','1-1:6.29','1-1:7.29','1-1:8.29','1-2:1.29','1-3:2.29']:
+                        # Sometimes id_line.count('.') != 2 filter doesn't work
+                        parsed_line['id'] = id_line
+
+                    elif '..' in id_line or '/' in id_line or id_line.count('.') != 2:
+                        # The obis code is incorect - raise and continue
+                        raise
+
+                    else:
+                        parsed_line['id'] = id_line
+    
                     if Parser.re_value1.search(line):
                         # TODO: WARNING re matches 'C.90.2(70D4EF6C)' value as '70'
                         # TODO: WARNING re matches '0.0.0(1EMH0010134075)' value as '1'
