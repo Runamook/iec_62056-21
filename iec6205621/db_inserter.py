@@ -200,6 +200,10 @@ class R2PG:
             keys_deleted = self.r.delete(*self.r_keys)
             self.r_keys = None
             self.logger.info(f'Removed {keys_deleted} keys from redis')
+
+            # Insert statistics counter
+            self.r.incrby(f'stats_{self.org}_{self.pg_schema}', keys_deleted)
+            
             return True
         except Exception as e:
             self.logger.error(f'Error, while removing keys from redis {e}')
@@ -254,7 +258,6 @@ class R2PG:
         if self._insert_many(queries):
             if self.delete:
                 self._clean_keys()
-
         return
 
     def run(self):

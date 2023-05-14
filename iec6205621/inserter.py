@@ -42,6 +42,7 @@ class Inserter:
             
             # Add statistics counter
             counter_name = f'stats_{self.org}_{self.data_id}'
+            self.logger.debug(f'Inserting stats at {counter_name}')
             r.incr(counter_name)
             return True
         except Exception as e:
