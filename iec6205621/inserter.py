@@ -8,8 +8,13 @@ class Inserter:
         self.logger = logger
         self.host = host
         self.port = port
+
+        self.org = meter_ts[0]
+        self.data_id = meter_ts[3]
+        
         self.meter_id = meter_ts[1]
         self.meter_ts = f'{meter_ts[0]}:{self.meter_id}_{meter_ts[2]}:{meter_ts[3]}' # org:meterId_ts:data_id
+        
         # Keys will be stored in redis for this time unless deleted explicitly
         #       86400 - 24 hours
         #       2592000 - 30 days
@@ -34,6 +39,10 @@ class Inserter:
                 r.set(name=self.meter_ts, value=data)
     
             self.logger.debug(f'{self.meter_id} {self.meter_ts} Redis insert successful')
+            
+            # Add statistics counter
+            counter_name = f'stats_{self.org}_{self.data_id}'
+            r.incr(counter_name)
             return True
         except Exception as e:
             self.logger.error(f'{self.meter_id} {self.meter_ts} Redis instert failed "{e}"')
