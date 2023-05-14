@@ -202,7 +202,7 @@ class R2PG:
             self.logger.info(f'Removed {keys_deleted} keys from redis')
 
             # Insert statistics counter
-            self.r.incrby(f'stats_{self.org}_{self.pg_schema}', keys_deleted)
+            self.r.incrby(f'stats_{self.org}_{self.pg_schema}_db', keys_deleted)
             
             return True
         except Exception as e:
