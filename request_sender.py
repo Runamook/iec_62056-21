@@ -367,7 +367,9 @@ def main(config_file):
 
     config_timer = 0
     config = read_cfg(config_file)
-    logger = create_logger(filename=config['DEFAULT']['logfile'], severity_code=config['DEFAULT']['severity'])
+
+    log_stdout = config['DEFAULT'].get('log_stdout') or False
+    logger = create_logger(filename=config['DEFAULT']['logfile'], severity_code=config['DEFAULT']['severity'], log_stdout=log_stdout)
     data_id = config['DEFAULT']['data_id'].lower()
 
     last_runs = dict()
