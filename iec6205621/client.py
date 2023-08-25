@@ -155,7 +155,7 @@ class Meter:
         else:
             cmd = b'/?!\r\n'
         try:
-            if self.manufacturer == 'metcom':
+            if self.manufacturer in ['metcom', 'metcom_new', 'metcom_edge']:
                 id_message = self._sendcmd(cmd, etx=self.LF).decode()
             elif self.manufacturer == 'emh':
                 id_message = self._sendcmd_and_decode_response(cmd)
