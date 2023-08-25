@@ -232,6 +232,8 @@ def process_data(meter, logger: logging.Logger, data_id, db: MeterDB =None):
         # p01_from not defined - request the latest X minutes 
         # Meter object shall always have a p01_from attribute - either from DB or determined in runtime
         if not meter['p01_from']:
+
+            # If p01_from doesn't exist in DB - generate it and provision to DB
             # meter[data_id] = seconds how often to query the data
             if meter[data_id] > 900:
                 # P01 is queried less often than every 15 minutes just query more
@@ -240,10 +242,13 @@ def process_data(meter, logger: logging.Logger, data_id, db: MeterDB =None):
 
                 # strftime %z doesn't work for no reason
                 # Hardcode CET timezone
-                # TODO: Fix
+                # TODO: Fix as https://stackoverflow.com/questions/74945974/python-timezone-processing
+                # dt.datetime.strptime('2022-12-28T20:55:45+1200', '%Y-%m-%dT%H:%M:%S%z')
                 meter['p01_from'] = f"{time_from.strftime('%Y-%m-%dT%H:%M:%S%z')}+02:00"
             else:
+                # If time_from is None - function will generate value
                 time_from = None
+            
             # Set p01_from field in SQL meter profile if not set            
             db.update_from_field(meter_id, data_type='p01_from',action='set', time_from=time_from)
             """    

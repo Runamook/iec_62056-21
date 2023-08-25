@@ -48,6 +48,10 @@ class R2PG:
         self.delete = kwargs.get('delete') or 1          # 1 - True, 0 - False. If True - delete Redis record after
         self.get_all = kwargs.get('get_all') or 0        # 1 - True, 0 - False. If True - do not use org, get all keys from Redis
         
+        # TODO: Add chunked processing
+        self.chunk_id = kwargs.get('chunk_id') or False
+        
+
         self.org = kwargs.get('org') or 'test'
         r_host = kwargs.get('r_host') or 'localhost'
         r_port = kwargs.get('r_port') or 6379
@@ -152,14 +156,29 @@ class R2PG:
         :return: data
         """
         data = []
+        max_keys = 4000
+
         try:
 
             if self.get_all:
                 # Get all keys from Redis
-                self.r_keys = self.r.keys()
+                # self.r_keys = self.r.keys()
+
+                # Only process limited amount of keys at a time
+                temp_r_keys = self.r.keys()
             else:
                 # Get keys from Redis by org
-                self.r_keys = self.r.keys(f'{self.org}*')
+                # self.r_keys = self.r.keys(f'{self.org}*')
+
+                if self.chunk_id:
+                    # Look for specific prefix only
+                    temp_r_keys = self.r.keys(f'{self.org}:{self.chunk_id}*')
+                else:
+                    temp_r_keys = self.r.keys(f'{self.org}*')
+
+
+            # Only process limited amount of keys at a time
+            self.r_keys = temp_r_keys[:max_keys]
             for r_key in self.r_keys:
                 # Load key from Redis and transform it to JSON
                 data.append(
@@ -248,6 +267,11 @@ class R2PG:
                     if received_obis.endswith('P.01'):
                         # TODO: в _add_obis не работает continue
                         continue
+                    elif '69.035' in received_obis:
+                        # Some issue with insertion: "INSERT INTO db.obis (obis) VALUES ('69.035');" 
+                        # operation error: unterminated quoted string at or near "'69.035" LINE 1: INSERT INTO db.obis (obis) VALUES ('69.035
+                        continue
+                        
                     if not self._add_obis(received_obis):
                         continue
 

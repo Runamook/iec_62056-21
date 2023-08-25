@@ -111,6 +111,8 @@ class Meter:
         self.p01_from = meter.get('p01_from') or None
         self.p98_from = meter.get('p98_from') or None
 
+        self.registry_timeshift = meter.get('registry_timeshift') or None
+
         self.mode = meter.get('mode') or True          # True => <ACK>050<CR><LF>, False => <ACK>051<CR><LF>
         self._connect()
 
@@ -509,6 +511,11 @@ class Meter:
         else:
             before = now - datetime.timedelta(minutes=90)
 
+        # Shift X minutes back to mitigate meter TZ issue
+        if self.registry_timeshift:
+            self.log('DEBUG', f'Timeshift activated for meter, P.01 from - {self.registry_timeshift} minutes')
+            before = before - datetime.timedelta(minutes=int(self.registry_timeshift))
+    
         t_from = f"0{before.strftime('%y%m%d%H%M')}"
 
         # data = f'P.0{profile_number}({t_from};{t_to})'.encode()
@@ -649,6 +656,11 @@ class Meter:
             # P01 was not queried before
             before = now - datetime.timedelta(minutes=90)
 
+        # Shift X minutes back to mitigate meter TZ issue
+        if self.registry_timeshift:
+            self.log('DEBUG', f'Timeshift activated for meter, P.01 from - {self.registry_timeshift} minutes')
+            before = before - datetime.timedelta(minutes=int(self.registry_timeshift))
+    
         t_from = f"0{before.strftime('%y%m%d%H%M')}"
 
         # data = f'P.0{profile_number}({t_from};{t_to})'.encode()
