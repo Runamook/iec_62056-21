@@ -95,7 +95,7 @@ class Meter:
     Tr = 4
     Inactivity_timeout = 60  # 60 - 120s 62056-21 Annex A, note 1
 
-    MAX_CONNECTION_ATTEMPTS = 5
+    MAX_CONNECTION_ATTEMPTS = 3
     MAX_BACKUP_ATTEMPTS = 1
 
     def __init__(self, timeout: int = 300,  **meter):
@@ -103,8 +103,10 @@ class Meter:
         self.result_obj = {'data': None, 'error_code': None, 'error_text': None }
         self.url = f'socket://{meter["ip_address"]}:{meter["port"]}'
 
-        backup_port = meter.get('backup_port') or 10001
-        self.backup_url = f'socket://{meter["ip_address"]}:{backup_port}'
+        if meter.get('backup_port'):
+            self.backup_url = f'socket://{meter["ip_address"]}:{meter["backup_port"]}'
+        else:
+            self.backup_url = None
         self.timeout = timeout
         self.data = None
         self.ser = None
@@ -137,7 +139,6 @@ class Meter:
                 self.log('WARN', f'"result_obj.data" = {self.result_obj["data"]}, modifying to "{data}"')
                 self.result_obj['data'] = data
 
-
     def _connect_old(self):
         try:
             self.ser = serial.serial_for_url(self.url,
@@ -156,8 +157,7 @@ class Meter:
 
         while connection_attempts < self.MAX_CONNECTION_ATTEMPTS:
             try:
-                # Choose URL based on the number of attempts
-                if connection_attempts >= self.MAX_CONNECTION_ATTEMPTS - self.MAX_BACKUP_ATTEMPTS:
+                if self.backup_url and connection_attempts >= self.MAX_CONNECTION_ATTEMPTS - self.MAX_BACKUP_ATTEMPTS:
                     current_url = self.backup_url
                     self.log('DEBUG', f'Using BACKUP URL {current_url}, timeout = {self.timeout}')
                 else:
@@ -178,6 +178,7 @@ class Meter:
             self.log('WARN', 'Exceeded maximum connection attempts. Unable to establish a TCP connection.')
             self._mod_result_obj(1, 'Exceeded maximum connection attempts. Failed to establish a TCP connection.')
             sys.exit(0)
+
 
     def _request(self):
         """
