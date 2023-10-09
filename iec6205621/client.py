@@ -96,7 +96,7 @@ class Meter:
     Inactivity_timeout = 60  # 60 - 120s 62056-21 Annex A, note 1
 
     MAX_CONNECTION_ATTEMPTS = 5
-    MAX_BACKUP_ATTEMPTS = 2
+    MAX_BACKUP_ATTEMPTS = 1
 
     def __init__(self, timeout: int = 300,  **meter):
 
@@ -157,12 +157,13 @@ class Meter:
         while connection_attempts < self.MAX_CONNECTION_ATTEMPTS:
             try:
                 # Choose URL based on the number of attempts
-                current_url = self.backup_url if connection_attempts >= 2 else self.url
-                if current_url == self.backup_url:
+                if connection_attempts >= self.MAX_CONNECTION_ATTEMPTS - self.MAX_BACKUP_ATTEMPTS:
+                    current_url = self.backup_url
                     self.log('DEBUG', f'Using BACKUP URL {current_url}, timeout = {self.timeout}')
                 else:
+                    current_url = self.url
                     self.log('DEBUG', f'Using PRIMARY URL {current_url}, timeout = {self.timeout}')
-                    
+
                 self.ser = serial.serial_for_url(current_url,
                                                 baudrate=300,
                                                 bytesize=serial.SEVENBITS,
