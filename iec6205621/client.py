@@ -104,7 +104,7 @@ class Meter:
         self.url = f'socket://{meter["ip_address"]}:{meter["port"]}'
 
         backup_port = meter.get('backup_port') or 10000
-        self.url = f'socket://{meter["ip_address"]}:{backup_port}'
+        self.backup_url = f'socket://{meter["ip_address"]}:{backup_port}'
         self.timeout = timeout
         self.data = None
         self.ser = None
