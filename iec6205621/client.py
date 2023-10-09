@@ -103,7 +103,7 @@ class Meter:
         self.result_obj = {'data': None, 'error_code': None, 'error_text': None }
         self.url = f'socket://{meter["ip_address"]}:{meter["port"]}'
 
-        backup_port = meter.get('backup_port') or 10000
+        backup_port = meter.get('backup_port') or 10001
         self.backup_url = f'socket://{meter["ip_address"]}:{backup_port}'
         self.timeout = timeout
         self.data = None
@@ -164,7 +164,10 @@ class Meter:
                                                 bytesize=serial.SEVENBITS,
                                                 parity=serial.PARITY_EVEN,
                                                 timeout=self.timeout)
-                self.log('DEBUG', f'Connected to {current_url}, timeout = {self.timeout}')
+                if current_url == self.backup_url:
+                    self.log('DEBUG', f'Connected to BACKUP {current_url}, timeout = {self.timeout}')
+                else:
+                    self.log('DEBUG', f'Connected to {current_url}, timeout = {self.timeout}')
                 break  # If connection successful, break out of the loop
             except SerialException:
                 connection_attempts += 1
