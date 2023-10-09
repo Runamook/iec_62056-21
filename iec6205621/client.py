@@ -153,37 +153,21 @@ class Meter:
 
     def _connect(self):
         connection_attempts = 0
-        backup_attempts = 0
 
         while connection_attempts < self.MAX_CONNECTION_ATTEMPTS:
             try:
-                if backup_attempts < self.MAX_BACKUP_ATTEMPTS and connection_attempts >= 2:
-                    self.ser = serial.serial_for_url(self.backup_url,
-                                                    baudrate=300,
-                                                    bytesize=serial.SEVENBITS,
-                                                    parity=serial.PARITY_EVEN,
-                                                    timeout=self.timeout)
-                    self.log('DEBUG', f'Connected to backup URL {self.backup_url}, timeout = {self.timeout}')
-                else:
-                    self.ser = serial.serial_for_url(self.url,
-                                                    baudrate=300,
-                                                    bytesize=serial.SEVENBITS,
-                                                    parity=serial.PARITY_EVEN,
-                                                    timeout=self.timeout)
-                    self.log('DEBUG', f'Connected to {self.url}, timeout = {self.timeout}')
+                # Choose URL based on the number of attempts
+                current_url = self.backup_url if connection_attempts >= 2 else self.url
 
-                # If connection successful, break out of the loop
-                break
+                self.ser = serial.serial_for_url(current_url,
+                                                baudrate=300,
+                                                bytesize=serial.SEVENBITS,
+                                                parity=serial.PARITY_EVEN,
+                                                timeout=self.timeout)
+                self.log('DEBUG', f'Connected to {current_url}, timeout = {self.timeout}')
+                break  # If connection successful, break out of the loop
             except SerialException:
                 connection_attempts += 1
-                if backup_attempts < self.MAX_BACKUP_ATTEMPTS and connection_attempts >= 2:
-                    backup_attempts += 1
-                    self.log('WARN', 'Unable to establish a TCP connection. Trying backup URL...')
-                    self._mod_result_obj(1, 'Failed to establish a TCP connection. Trying backup URL...')
-                else:
-                    self.log('WARN', 'Unable to establish a TCP connection.')
-                    self._mod_result_obj(1, 'Failed to establish a TCP connection.')
-                    sys.exit(0)
 
         if connection_attempts == self.MAX_CONNECTION_ATTEMPTS:
             self.log('WARN', 'Exceeded maximum connection attempts. Unable to establish a TCP connection.')
