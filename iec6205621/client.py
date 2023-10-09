@@ -160,7 +160,9 @@ class Meter:
                 current_url = self.backup_url if connection_attempts >= 2 else self.url
                 if current_url == self.backup_url:
                     self.log('DEBUG', f'Using BACKUP URL {current_url}, timeout = {self.timeout}')
-
+                else:
+                    self.log('DEBUG', f'Using PRIMARY URL {current_url}, timeout = {self.timeout}')
+                    
                 self.ser = serial.serial_for_url(current_url,
                                                 baudrate=300,
                                                 bytesize=serial.SEVENBITS,
