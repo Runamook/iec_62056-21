@@ -16,7 +16,7 @@ import json
 # (Re)Reads meters from Postgres
 # Starts a loop :
 # - Check if a meter should be queried
-# - Starts a job
+# - Starts a job(
 
 # TODO: meter locking?
 # TODO: statistics counters

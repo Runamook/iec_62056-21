@@ -95,9 +95,16 @@ class Meter:
     Tr = 4
     Inactivity_timeout = 60  # 60 - 120s 62056-21 Annex A, note 1
 
+    MAX_CONNECTION_ATTEMPTS = 5
+    MAX_BACKUP_ATTEMPTS = 2
+
     def __init__(self, timeout: int = 300,  **meter):
+
         self.result_obj = {'data': None, 'error_code': None, 'error_text': None }
         self.url = f'socket://{meter["ip_address"]}:{meter["port"]}'
+
+        backup_port = meter.get('backup_port') or 10000
+        self.url = f'socket://{meter["ip_address"]}:{backup_port}'
         self.timeout = timeout
         self.data = None
         self.ser = None
@@ -131,7 +138,7 @@ class Meter:
                 self.result_obj['data'] = data
 
 
-    def _connect(self):
+    def _connect_old(self):
         try:
             self.ser = serial.serial_for_url(self.url,
                                              baudrate=300,
@@ -142,6 +149,45 @@ class Meter:
         except SerialException:
             self.log('WARN', 'Unable to establish TCP connection')
             self._mod_result_obj(1, 'Unable to establish TCP connection')
+            sys.exit(0)
+
+    def _connect(self):
+        connection_attempts = 0
+        backup_attempts = 0
+
+        while connection_attempts < self.MAX_CONNECTION_ATTEMPTS:
+            try:
+                if backup_attempts < self.MAX_BACKUP_ATTEMPTS and connection_attempts >= 2:
+                    self.ser = serial.serial_for_url(self.backup_url,
+                                                    baudrate=300,
+                                                    bytesize=serial.SEVENBITS,
+                                                    parity=serial.PARITY_EVEN,
+                                                    timeout=self.timeout)
+                    self.log('DEBUG', f'Connected to backup URL {self.backup_url}, timeout = {self.timeout}')
+                else:
+                    self.ser = serial.serial_for_url(self.url,
+                                                    baudrate=300,
+                                                    bytesize=serial.SEVENBITS,
+                                                    parity=serial.PARITY_EVEN,
+                                                    timeout=self.timeout)
+                    self.log('DEBUG', f'Connected to {self.url}, timeout = {self.timeout}')
+
+                # If connection successful, break out of the loop
+                break
+            except SerialException:
+                connection_attempts += 1
+                if backup_attempts < self.MAX_BACKUP_ATTEMPTS and connection_attempts >= 2:
+                    backup_attempts += 1
+                    self.log('WARN', 'Unable to establish a TCP connection. Trying backup URL...')
+                    self._mod_result_obj(1, 'Failed to establish a TCP connection. Trying backup URL...')
+                else:
+                    self.log('WARN', 'Unable to establish a TCP connection.')
+                    self._mod_result_obj(1, 'Failed to establish a TCP connection.')
+                    sys.exit(0)
+
+        if connection_attempts == self.MAX_CONNECTION_ATTEMPTS:
+            self.log('WARN', 'Exceeded maximum connection attempts. Unable to establish a TCP connection.')
+            self._mod_result_obj(1, 'Exceeded maximum connection attempts. Failed to establish a TCP connection.')
             sys.exit(0)
 
     def _request(self):
@@ -648,6 +694,8 @@ class Meter:
             from_ts = datetime.datetime.strptime(self.p01_from, '%Y-%m-%dT%H:%M:%S%z')
             self.log('DEBUG', f'P01_from: "{self.p01_from}": {from_ts}')
             ninty_min_ago = now - datetime.timedelta(minutes=90)
+            
+            # from_ts is younger than ninty_min_ago
             if from_ts > ninty_min_ago:
                 before = ninty_min_ago
             else:

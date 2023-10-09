@@ -629,6 +629,24 @@ class Parser:
         Mwn         Measured values
         """
         
+        # TODO: Parse P01 with error
+        #
+        #  Ends with <CR><LF>(0.03746)(0.00000)(0.00000)(0.00000)(0.00000)(0.00926)<CR><LF>(0.04063)(0.00000)(0.00000)(0.00000)(0.00000)(0.00918)<CR><LF>(0.03770)(0.
+        #    00000)(0.00000)(0.00000)(0.00000)(0.00923)<CR><LF><ETX>~<SOH>B0<ETX>
+
+        # TODO: Parse P01 with another error
+        # 2023-09-22 12:06:42,266 __main__     DEBUG    10132380 10.179.31.196:5000 Meter -> HHU (Tr = 4): 
+        # "<STX>P.01(1230920203000)(08)(15)(6)(1-0:1.5.0)(kW)(1-0:2.5.0)(kW)(1-0:5.5.0)(kvar)(1-0:6.5.0)(kvar)(1-0:7.5.0)(kvar)(1-0:8.5.0)(kvar)<CR><LF>
+        # (0.26)(0.00)(0.00)(0.00)(0.00)(0.05)<CR><LF>
+        # (0.17)(0.00)(0.03)(0.00)(0.00)(0.00)<CR><LF>
+        # (0.17)(0.00"
+        # Terminated by timeout prematurely
+        # (0.10)(0.00)(0.01)(0.00)(0.00)(0.05)^M
+        # (0.22)(0.00)(0.01)(0.00)(0.00)(0.03)^M
+        # (0.17)(0.00
+        # 2023-09-22 12:06:42,268 __main__     ERROR    10132380 Expected z=6 values, found 2 in line "['0.17)', '0.00']"
+        # Stop parsing and return last date
+
         data = self.unparsed_data.split('\n')
         for line in data:
 
@@ -729,7 +747,7 @@ class Parser:
                     # # (0.00000)(0.04088)(0.00000)(0.00358)(0.00000)(0.00000)(0.00000)(0.00000)
 
                     if len(line) < 2:
-                        # self.log('DEBUG', f'Line "{line}" to short, skipping')
+                        self.log('DEBUG', f'Line "{line}" to short, skipping')
                         # Probably, end of message
                         return
 
