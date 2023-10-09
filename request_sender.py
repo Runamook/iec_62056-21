@@ -278,7 +278,7 @@ def process_data(meter, logger: logging.Logger, data_id, db: MeterDB =None):
             db.update_from_field(meter_id, data_type='p98_from', action='set', time_from=time_from)
 
     try:
-        m = MyMeter(logger=logger, timeout=10, **meter)
+        m = MyMeter(logger=logger, timeout=4, **meter)
     except Exception as e:
         logger.error(e)
         sys.exit(1)
