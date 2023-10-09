@@ -159,17 +159,17 @@ class Meter:
             try:
                 if self.backup_url and connection_attempts >= self.MAX_CONNECTION_ATTEMPTS - self.MAX_BACKUP_ATTEMPTS:
                     current_url = self.backup_url
-                    self.log('DEBUG', f'Using BACKUP URL {current_url}, timeout = {self.timeout}')
+                    self.log('DEBUG', f'Using BACKUP URL {current_url}, attempt {connection_attempts}, timeout = {self.timeout}')
                 else:
                     current_url = self.url
-                    self.log('DEBUG', f'Using PRIMARY URL {current_url}, timeout = {self.timeout}')
+                    self.log('DEBUG', f'Using PRIMARY URL {current_url}, attempt {connection_attempts}, timeout = {self.timeout}')
 
                 self.ser = serial.serial_for_url(current_url,
                                                 baudrate=300,
                                                 bytesize=serial.SEVENBITS,
                                                 parity=serial.PARITY_EVEN,
                                                 timeout=self.timeout)
-                self.log('DEBUG', f'Connected to {current_url}, timeout = {self.timeout}')
+                self.log('DEBUG', f'Connected to {current_url} on {connection_attempts} attempt, timeout = {self.timeout}')
                 break  # If connection successful, break out of the loop
             except SerialException:
                 connection_attempts += 1
