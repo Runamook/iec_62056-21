@@ -79,6 +79,9 @@ class IECTest(unittest.TestCase):
     # EMH 2
     P01_data_3 = 'P.01(1221005001500)(00000000)(15)(8)(1-1:1.29)(kWh)(1-1:2.29)(kWh)(1-1:5.29)(kvarh)(1-1:6.29)(kvarh)(1-1:7.29)(kvarh)(1-1:8.29)(kvarh)(1-2:1.29)(kWh)(1-3:2.29)(kWh)\r\n(0.00000)(0.04088)(0.00000)(0.00358)(0.00000)(0.00000)(0.00000)(0.00000)\r\n(0.00000)(0.03964)(0.00000)(0.00350)(0.00000)(0.00000)(0.00000)(0.00000)\r\n' 
 
+    # Metcom
+    P01_data_4 = 'P.01(0231113101500)(80)(15)(6)(1-0:1.5.0)(kW)(1-0:2.5.0)(kW)(1-0:5.5.0)(kvar)(1-0:6.5.0)(kvar)(1-0:7.5.0)(kvar)(1-0:8.5.0)(kvar)<CR><LF>(0.00000)(0.00086)(0.00000)(0.00000)(0.00006)(0.00000)<CR><LF>P.01(0231113103000)(00)(15)(6)(1-0:1.5.0)(kW)(1-0:2.5.0)(kW)(1-0:5.5.0)(kvar)(1-0:6.5.0)(kvar)(1-0:7.5.0)(kvar)(1-0:8.5.0)(kvar)<CR><LF>(0.00026)(0.00158)(0.00000)(0.00716)(0.00004)(0.00021)<CR><LF>(0.25873)(0.00000)(0.00000)(0.00000)(0.00000)(0.04055)<CR><LF>(0.21487)(0.00000)(0.00000)(0.00000)(0.00000)(0.04423)<CR><LF>(0.19718)(0.00000)(0.00000)(0.00000)(0.00000)(0.04390)<CR><LF>(0.20555)(0.00000)(0.00000)(0.00000)(0.00000)(0.04183)\r\n'
+
     # EMH? P.98
     P98_data_1 = '/EMH5\@\201LZQJL0013F\r\n0.0.0(23456321)\r\nP.98(1041007095703)(00002000)()(0)\r\nP.98(1041007095703)(00004000)()(0)\r\nP.98(1041007095807)(00000100)()(0)\r\nP.98(1041007095914)(00000080)()(0)\r\n'
 
@@ -112,8 +115,15 @@ class IECTest(unittest.TestCase):
     def test_parseP01_3(self):
         p = parser.Parser(raw_data=IECTest.P01_data_3, data_type='P.01', logger=logger, **IECTest.meter_emh)
         p._parseP01()
-        p.log('DEBUG', f'\n\n{p.parsed_data}')
+        p.log('DEBUG', f'\n\nParsed data: {p.parsed_data}\n\n')
         self.assertEqual(len(p.parsed_data), 16, 'Parse EMH P01 set 2 failed')
+
+    def test_parseP01_4(self):
+        p = parser.Parser(raw_data=IECTest.P01_data_4, data_type='P.01', logger=logger, **IECTest.meter_metcom)
+        p.log('DEBUG', f'\n\nParsing {IECTest.P01_data_4}\n\n')
+        p._parseP01()
+        p.log('DEBUG', f'\n\nParsed data: {p.parsed_data}\n\n')
+        self.assertEqual(len(p.parsed_data), 36, 'Parse EMH P01 set 4 failed')
 
     def test_parseP98_1(self):
         p = parser.Parser(raw_data=IECTest.P98_data_1, data_type='P.98', logger=logger, **IECTest.meter_emh)

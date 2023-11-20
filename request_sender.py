@@ -309,6 +309,21 @@ def process_data(meter, logger: logging.Logger, data_id, db: MeterDB =None):
         parser = p.Parser(raw_data, data_type=data_id, logger=logger, **meter)
         parsed_data = parser.parse()
         logger.debug(f'{meter_id} Parsed data: {parsed_data}')
+        # P.01 
+        # [
+        #   {'id': '1.5.0', 'value': '0.00709', 'unit': 'kW', 'line_time': '1700507700'}, 
+        #   {'id': '2.5.0', 'value': '0.00000', 'unit': 'kW', 'line_time': '1700507700'}, 
+        #   {'id': '5.5.0', 'value': '0.00157', 'unit': 'kvar', 'line_time': '1700507700'}, 
+        #   {'id': '6.5.0', 'value': '0.00000', 'unit': 'kvar', 'line_time': '1700507700'}, 
+        #   {'id': '7.5.0', 'value': '0.00000', 'unit': 'kvar', 'line_time': '1700507700'}
+        # ]
+        if data_id == 'p01':
+            last_ts_e = parsed_data[-1]['line_time']
+            # Convert unixtime to datetime object
+            last_ts = datetime.datetime.fromtimestamp(int(last_ts_e))
+            last_ts_str = f"{datetime.datetime.fromtimestamp(int(last_ts_e)).strftime('%Y-%m-%dT%H:%M:%S%z')}+02:00"
+            logger.debug(f'Last ts: {last_ts_e} = {last_ts_str}')
+
     except Exception as e:
         logger.error(f'{meter_id} Error during parsing: "{e}"')
         sys.exit(1)
@@ -320,8 +335,13 @@ def process_data(meter, logger: logging.Logger, data_id, db: MeterDB =None):
         inserter = i.Inserter(logger=logger, meter_ts=meter_ts)
         if inserter.insert(parsed_data):
             if data_id == 'p01':
-                # All good - unset p01_from field in SQL meter profile
-                db.update_from_field(meter_id, data_type='p01_from', action='delete')
+                # # All good - unset p01_from field in SQL meter profile
+                # db.update_from_field(meter_id, data_type='p01_from', action='delete')
+                
+                # All good - set p01_from field to the last parsed line_time.
+                # This allows to dealt with a problem, when meter doesn't return full requested dataset.
+                db.update_from_field(meter_id, data_type='p01_from',action='set', time_from=last_ts)
+                
             if data_id == 'p98':
                 # All good - unset p98_from field in SQL meter profile
                 db.update_from_field(meter_id, data_type='p98_from', action='delete')                
