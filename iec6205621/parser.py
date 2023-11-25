@@ -73,8 +73,9 @@ class Parser:
         if self.offset is None:
             self.log('ERROR', f'Unknown timezone "{self.timezone}". Please define in "{Parser.tz_offset}"')
             sys.exit(1)
-
+        self.dt_tz = pytz.timezone(self.timezone)
         self.time_format = '%y%m%d%H%M%S %z'
+        self.time_format_no_tz = '%y%m%d%H%M%S'
 
 
     def parse(self):
@@ -682,8 +683,10 @@ class Parser:
                     kz = line[0]
 
                     # Take meter TZ and make timestamp UTC
-                    zsts13 = datetime.datetime.strptime(f"{line[1].strip(')')[1:]} {self.offset}", self.time_format)
-
+                    # Switch from static TZ to DB based TZ
+                    # zsts13 = datetime.datetime.strptime(f"{line[1].strip(')')[1:]} {self.offset}", self.time_format)
+                    zsts13 = datetime.datetime.strptime(f"{line[1].strip(')')[1:]}", self.time_format_no_tz)
+                    zsts13 = self.dt_tz.localize(zsts13)
 
                     if self.manufacturer == 'metcom':
                         # '08)' => '00001000'
@@ -835,11 +838,9 @@ class Parser:
                     # Take meter TZ and make timestamp UTC
                     
                     time_line = line[1].strip(')')[1:-6] # 231122
-                    tz = pytz.timezone(self.timezone)
-
                     time_format = '%y%m%d'
                     zsts13 = datetime.datetime.strptime(time_line, time_format)
-                    zsts13 = tz.localize(zsts13)
+                    zsts13 = self.dt_tz.localize(zsts13)
 
                     if self.manufacturer == 'metcom':
                         # '08)' => '00001000'
