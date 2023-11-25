@@ -1,6 +1,7 @@
 import re
 import sys
 import datetime
+import pytz
 
 class Parser:
 
@@ -87,6 +88,8 @@ class Parser:
             self._parse_list2()
         elif self.data_type == 'p01':
             self._parseP01()            
+        elif self.data_type == 'p02':
+            self._parseP02()            
         elif self.data_type in ['P.98', 'p98']:
             self._parseP98()
         elif self.data_type in ['P.99', 'p99']:
@@ -754,43 +757,6 @@ class Parser:
                     line = line.split('(')
                     line.pop(0)
 
-                    """
-                    # When it works incorrectly - messes up all the data
-                    # Fix on meter side
-                    # (0.00000)(0.71671)(0.00000)(0.1P.01(1230326173000)(08)(15)(6)(1-0:1.5.0)(kW)(1-0:2.5.0)(kW)(1-0:5.5.0)(kvar)(1-0:6.5.0)(kvar)(1-0:7.5.0)(kvar)(1-0:8.5.0)(kvar)
-
-                    if len(line) > z:
-                        # Metcom: Sometimes meter can send something like this
-                        # (0.46768)(0.00000)(0.00000)(0.00000)(0.00000)(0.11689)^M
-                        # (0.70519)(0.00000)(0.00000)(0.00000)(0.00000)(0.1530.38921)(0.00000)(0.00000)(0.00000)(0.00000)(0.12339)^M
-                        # (0.33181)(0.00000)(0.00000)(0.00000)(0.00000)(0.09438)^M
-
-                        # Line 2 is obviously wrong per se. But value 6 is also inconsistent: (0.1530.38921)
-
-                        self.log('ERROR', f'Expected z={z} values, found more:{len(line)} in line "{line}"')
-                        new_line = line[:5]
-                        new_line.append(line[-1])
-                        line = new_line[:]
-                        self.log('DEBUG', f'Line modified to "{line}". THAT MIGHT INTRODUCE INCORRECT DATA')
-
-                    elif len(line) < z:
-                        self.log('ERROR', f'Expected z={z} values, found less:{len(line)} in line "{line}"')
-                        if len(line) == 5:
-                            # Metcom: Another variant, third element also inconsistent: (0.00005)31)
-                            # (0.00000)(0.02815)(0.00006)(0.08319)(0.00000)(0.00000)^M
-                            # (0.00001)(0.02361)(0.00005)31)(0.00000)(0.00000)^M
-                            # (0.00000)(0.02723)(0.00000)(0.08476)(0.00000)(0.00000)^M
-                            
-                            new_line = list()
-                            for element in line:
-                                new_line.append(f"{element.split(')')[0]})")
-                            new_line.append('0.00000)\r')
-                            line = new_line[:]
-                        else:
-                            sys.exit(1)
-
-                        self.log('DEBUG', f'Line modified to "{line}". THAT MIGHT INTRODUCE INCORRECT DATA')
-                    """
                     if len(line) != z:
                         self.log('ERROR', f'Expected z={z} values, found {len(line)} in line "{line}"')
                         sys.exit(1)
@@ -802,6 +768,169 @@ class Parser:
                             'unit': units[i],
                             'line_time': (zsts13 + rp * line_number).strftime('%s')
                         }
+
+                        # Match parsed_line['value'] with regex \d+\.\d+\. and skip incorrect value
+                        if not re.match(r'(\d+\.\d+$)', parsed_line['value']):
+                            self.log('ERROR', f'Expected float value, found "{parsed_line["value"]}" in line "{line}"')
+                            # sys.exit(1)
+                            continue
+                        
+                        self.parsed_data.append(parsed_line)
+                    line_number += 1
+                except Exception as e:
+                    self.log('ERROR', f'Exception "{e}" during P01 line parsing "{line}"')
+                    sys.exit(1)
+
+    def _parseP02(self):
+        """
+        P.02(0231122000000)(00)(1440)(6)(1-0:1.8.0)(kWh)(1-0:2.8.0)(kWh)(1-0:5.8.0)(kvarh)(1-0:6.8.0)(kvarh)(1-0:7.8.0)(kvarh)(1-0:8.8.0)(kvarh)
+        (02704.2331)(00000.0000)(00095.7249)(00000.0000)(00000.0000)(00203.1329)
+        P.02(0231123000000)(00)(1440)(6)(1-0:1.8.0)(kWh)(1-0:2.8.0)(kWh)(1-0:5.8.0)(kvarh)(1-0:6.8.0)(kvarh)(1-0:7.8.0)(kvarh)(1-0:8.8.0)(kvarh)
+        (02709.9431)(00000.0000)(00095.7401)(00000.0000)(00000.0000)(00203.2860)
+        P.02(0231124000000)(00)(1440)(6)(1-0:1.8.0)(kWh)(1-0:2.8.0)(kWh)(1-0:5.8.0)(kvarh)(1-0:6.8.0)(kvarh)(1-0:7.8.0)(kvarh)(1-0:8.8.0)(kvarh)
+        (02717.5189)(00000.0000)(00096.3410)(00000.0000)(00000.0000)(00203.3189)
+        P.02(0231125000000)(00)(1440)(6)(1-0:1.8.0)(kWh)(1-0:2.8.0)(kWh)(1-0:5.8.0)(kvarh)(1-0:6.8.0)(kvarh)(1-0:7.8.0)(kvarh)(1-0:8.8.0)(kvarh)
+        (02725.7063)(00000.0000)(00096.8274)(00000.0000)(00000.0000)(00203.3904)
+        :return: None
+        Function updates self.parsed_data
+
+        KZ(ZSTs13)(S)(RP)(z)(KZ1)(E1 ).. (KZz)(Ez)
+        (Mw1)...(Mwz)
+
+        KZ          OBIS-Identifier "P.01" or “P.02” or “P.03” .....
+        ZSTs13      Time stamp format of the oldest measured value
+        S           Profile status word
+        RP          Registration period in minutes
+        z           Number of different measured values in one registration period
+        KZn         Identifier of the measured values (without tariff particulars or preceding-value Identifier)
+        En          Units of measured values
+        Mwn         Measured values
+        """
+
+        data = self.unparsed_data.split('\n')
+        for line in data:
+
+            if line[0:4] in self.load_profiles:
+                # Parse header line
+                # Metcom
+                # [
+                #   'P.02', 
+                #   '0231122000000)', 
+                #   '00)', 
+                #   '1440)', 
+                #   '6)', 
+                #   '1-0:1.8.0)', 'kW)', 
+                #   '1-0:2.8.0)', 'kW)', 
+                #   '1-0:5.8.0)', 'kvar)', 
+                #   '1-0:6.8.0)', 'kvar)', 
+                #   '1-0:7.8.0)', 'kvar)', 
+                #   '1-0:8.8.0)', 'kvar)'
+                # ]
+
+                line_number = 0
+                try:
+                    line = line.split('(')
+                    kz = line[0]
+
+                    # Take meter TZ and make timestamp UTC
+                    
+                    time_line = line[1].strip(')')[1:-6] # 231122
+                    tz = pytz.timezone(self.timezone)
+
+                    time_format = '%y%m%d'
+                    zsts13 = datetime.datetime.strptime(time_line, time_format)
+                    zsts13 = tz.localize(zsts13)
+
+                    if self.manufacturer == 'metcom':
+                        # '08)' => '00001000'
+                        # Bit
+                        # 7 PDN Power down
+                        # 6 RSV Reserved
+                        # 5 CAD Clock adjusted
+                        # 4 RSV Reserved
+                        # 3 DST Daylight saving
+                        # 2 DNV Data not valid
+                        # 1 CIV Clock invalid
+                        # 0 ERR Critical error
+                        s = format((int(line[2].strip(')'))), '08b')
+                    else:
+                        # 'emh'
+                        # '00000000)'
+                        s =  line[2].strip(')')
+
+                    # '1440)'
+                    rp = datetime.timedelta(minutes=int(line[3].strip(')')))
+
+                    # '6)' - amount of values in a line
+                    z = int(line[4].strip(')'))
+
+                    if z != 6 and z != 8:
+                        self.log('WARN', f'Not expecting z other than 6 or 8, z={z} received. Update the parser code. {line}')
+                        sys.exit(1)
+                    
+                    ids = list()
+                    units = list()
+                    
+
+                    # Values in line with index 0-4 are a constant prefix like
+                    # ['P.01', '1221002001500)', '00000000)', '15)', '8)',
+                    # Values with index 5+ are a variable key list like
+                    # '1-1:1.29)', 'kWh)', '1-1:2.29)', 'kWh)', '1-1:5.29)', 'kvarh)', '1-1:6.29)', 'kvarh)', '1-1:7.29)', 'kvarh)', '1-1:8.29)', 'kvarh)', '1-2:1.29)', 'kWh)', '1-3:2.29)', 'kWh)'
+                    if self.manufacturer == 'metcom':
+                        # z = 6 => range(5,16,2)
+                        # z = 8 => range(5,20,2)
+                        for i in range(5,4+z*2,2):
+                            # '1.5)'
+                            # 'kW)'
+                            ids.append(line[i].strip().strip(')').split(':')[1])
+                            units.append(line[i+1].strip().strip(')'))
+                    else:
+                        # 'emh'
+                        # z = 6 => range(5,16,2)
+                        # z = 8 => range(5,20,2)
+                        for i in range(5,4+z*2,2):
+                        
+                            # '1-0:1.5.0)'
+                            # 'kW)'
+                            ids.append(line[i].strip().strip(')'))
+                            units.append(line[i+1].strip().strip(')'))                        
+
+                except Exception as e:
+                    self.log('ERROR', f'Exception "{e}" during P01 header parsing "{line}"')
+                    sys.exit(1)
+            else:
+                try:
+                    # Parse data line
+                    # (0.00063)(0.00000)(0.00023)(0.00000)(0.00000)(0.00000)
+                    # or 
+                    # # (0.00000)(0.04088)(0.00000)(0.00358)(0.00000)(0.00000)(0.00000)(0.00000)
+
+                    if len(line) < 2:
+                        self.log('DEBUG', f'Line "{line}" to short, skipping')
+                        # Probably, end of message
+                        return
+
+                    line = line.split('(')
+                    line.pop(0)
+
+                    if len(line) != z:
+                        self.log('ERROR', f'Expected z={z} values, found {len(line)} in line "{line}"')
+                        sys.exit(1)
+                    
+                    for i in range(z):
+                        parsed_line = {
+                            'id': ids[i],
+                            'value': line[i].strip().strip(')'),
+                            'unit': units[i],
+                            'line_time': (zsts13 + rp * line_number).strftime('%s')
+                        }
+
+                        # Match parsed_line['value'] with regex \d+\.\d+\. and skip incorrect value
+                        if not re.match(r'(\d+\.\d+$)', parsed_line['value']):
+                            self.log('ERROR', f'Expected float value, found "{parsed_line["value"]}" in line "{line}"')
+                            # sys.exit(1)
+                            continue
+                        
                         self.parsed_data.append(parsed_line)
                     line_number += 1
                 except Exception as e:

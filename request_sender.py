@@ -288,6 +288,8 @@ def process_data(meter, logger: logging.Logger, data_id, db: MeterDB =None):
         raw_data = m.readList(list_number=data_id)
     elif data_id == 'p01':
         raw_data = m.readLoadProfile(profile_number='1')
+    elif data_id == 'p02':
+        raw_data = m.readLoadProfile(profile_number='2')
     elif data_id == 'p98':
         raw_data = m.readP98()
     elif data_id == 'p99':
