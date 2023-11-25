@@ -919,8 +919,9 @@ class Parser:
                         sys.exit(1)
                     
                     for i in range(z):
+                        # We need to separate P02 data from others, cause obis is reused
                         parsed_line = {
-                            'id': ids[i],
+                            'id': f'p02-{ids[i]}',
                             'value': line[i].strip().strip(')'),
                             'unit': units[i],
                             'line_time': (zsts13 + rp * line_number).strftime('%s')
