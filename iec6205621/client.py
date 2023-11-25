@@ -119,6 +119,7 @@ class Meter:
         self.timezone = pytz.timezone(tz)
         self.p01_from = meter.get('p01_from') or None
         self.p98_from = meter.get('p98_from') or None
+        self.p02_from = meter.get('p02_from') or None
 
         self.registry_timeshift = meter.get('registry_timeshift') or None
 
@@ -679,27 +680,42 @@ class Meter:
         
         now = datetime.datetime.now(self.timezone)
 
-        if self.p01_from:
-            # P01 was queried before. Field format = "2022-04-12T21:59:15+03:00"
-            from_ts = datetime.datetime.strptime(self.p01_from, '%Y-%m-%dT%H:%M:%S%z')
-            self.log('DEBUG', f'P01_from: "{self.p01_from}": {from_ts}')
-            ninty_min_ago = now - datetime.timedelta(minutes=90)
-            
-            # from_ts is younger than ninty_min_ago
-            if from_ts > ninty_min_ago:
-                before = ninty_min_ago
+        # P01
+        if profile_number == '1':
+            if self.p01_from:
+                # P01 was queried before. Field format = "2022-04-12T21:59:15+03:00"
+                from_ts = datetime.datetime.strptime(self.p01_from, '%Y-%m-%dT%H:%M:%S%z')
+                self.log('DEBUG', f'P01_from: "{self.p01_from}": {from_ts}')
+                ninty_min_ago = now - datetime.timedelta(minutes=90)
+                
+                # from_ts is younger than ninty_min_ago
+                if from_ts > ninty_min_ago:
+                    before = ninty_min_ago
+                else:
+                    before = from_ts
             else:
-                before = from_ts
-        else:
-            # P01 was not queried before
-            before = now - datetime.timedelta(minutes=90)
+                # P01 was not queried before
+                before = now - datetime.timedelta(minutes=90)
 
-        # Shift X minutes back to mitigate meter TZ issue
-        if self.registry_timeshift:
-            self.log('DEBUG', f'Timeshift activated for meter, P.01 from - {self.registry_timeshift} minutes')
-            before = before - datetime.timedelta(minutes=int(self.registry_timeshift))
-    
-        t_from = f"0{before.strftime('%y%m%d%H%M')}"
+            # Shift X minutes back to mitigate meter TZ issue
+            if self.registry_timeshift:
+                self.log('DEBUG', f'Timeshift activated for meter, P.01 from - {self.registry_timeshift} minutes')
+                before = before - datetime.timedelta(minutes=int(self.registry_timeshift))
+        
+            t_from = f"0{before.strftime('%y%m%d%H%M')}"
+
+        # P02
+        elif profile_number == '2':
+
+            if self.p02_from:
+                # P02 was queried before. Field format = "2022-04-12T21:59:15+03:00"
+                from_ts = datetime.datetime.strptime(self.p02_from, '%Y-%m-%dT%H:%M:%S%z')
+                self.log('DEBUG', f'P02_from: "{self.p02_from}": {from_ts}')
+            else:
+                # If variable not defined - just take 7 days ago
+                from_ts = now - datetime.timedelta(days=7)
+                
+            t_from = f"0{from_ts.strftime('%y%m%d%H%M')}"
 
         # data = f'P.0{profile_number}({t_from};{t_to})'.encode()
         data = f'P.0{profile_number}({t_from};)'.encode()
