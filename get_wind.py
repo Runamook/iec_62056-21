@@ -90,7 +90,7 @@ class VirtualMeter:
         self.result = {'weather_data': None, 'power': None, 'error_code': 0, 'error_text': None}
 
     @staticmethod
-    def get_wind_many(api_user, api_password, meters, logger, hours=24):
+    def get_wind_many(api_user, api_password, meters, logger, hours=24, forecast=0):
         """
         Queries wheather data for the last X hours for all meters in the list.
         Returns meter data enriched with the wheather, per location 
@@ -150,7 +150,10 @@ class VirtualMeter:
             hours = int(hours)
             utcbefore = (datetime.datetime.utcnow()-datetime.timedelta(hours=hours)).strftime('%Y-%m-%dT%H:%M:%S.000+00')
 
-            time_string = f'{utcbefore}--{utcnow}'
+            forecast = int(forecast)
+            utcafter = (datetime.datetime.utcnow()+datetime.timedelta(hours=forecast)).strftime('%Y-%m-%dT%H:%M:%S.000Z')
+
+            time_string = f'{utcbefore}--{utcafter}'
             
             # coord_set = "51.5073219,-0.1276474+51.5073219,-0.1276474"
 
@@ -617,6 +620,7 @@ def main(config_file):
 
     if mass:
         hours = config['API']['hours_to_read']
+        forecast = config['API']['hours_to_forecast']
 
     api_key, api_user, api_password = None, None, None
 
@@ -681,7 +685,7 @@ def main(config_file):
                 # 2. Enrich the meter object and set a flag not to query the api
                 # 3. Process each data individually in regular thread                
 
-                result = VirtualMeter.get_wind_many(api_user, api_password, meters_to_process, logger, hours)
+                result = VirtualMeter.get_wind_many(api_user, api_password, meters_to_process, logger, hours, forecast)
 
                 if result:
 
