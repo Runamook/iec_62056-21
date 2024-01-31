@@ -679,8 +679,10 @@ class Meter:
         # - Meter will respond from that time till the end requested
         
         now = datetime.datetime.now(self.timezone)
+        t_to = None
 
         # P01
+
         if profile_number == '1':
             if self.p01_from:
                 # P01 was queried before. Field format = "2022-04-12T21:59:15+03:00"
@@ -701,7 +703,11 @@ class Meter:
             if self.registry_timeshift:
                 self.log('DEBUG', f'Timeshift activated for meter, P.01 from - {self.registry_timeshift} minutes')
                 before = before - datetime.timedelta(minutes=int(self.registry_timeshift))
-        
+            
+            # p01_to
+            after = max(before + datetime.timedelta(minutes=300), datetime.datetime.now(self.timezone))
+
+            t_to = f"0{after.strftime('%y%m%d%H%M')}"
             t_from = f"0{before.strftime('%y%m%d%H%M')}"
 
         # P02
@@ -718,7 +724,11 @@ class Meter:
             t_from = f"0{from_ts.strftime('%y%m%d%H%M')}"
 
         # data = f'P.0{profile_number}({t_from};{t_to})'.encode()
-        data = f'P.0{profile_number}({t_from};)'.encode()
+        
+        if t_to:
+            data = f'P.0{profile_number}({t_from};{t_to})'.encode()
+        else:
+            data = f'P.0{profile_number}({t_from};)'.encode()
         cmd = b'R5'
 
         return self.send_to_meter(in_cmd=cmd, in_data=data)

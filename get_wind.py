@@ -145,13 +145,14 @@ class VirtualMeter:
             coord_set = coord_set.rstrip('+')
             
             # Request data
-            utcnow = datetime.datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S.000Z')
+            utcnow = datetime.datetime.utcnow()
+            rounded_utcnow = utcnow.replace(minute=0, second=0, microsecond=0)
 
-            hours = int(hours)
-            utcbefore = (datetime.datetime.utcnow()-datetime.timedelta(hours=hours)).strftime('%Y-%m-%dT%H:%M:%S.000+00')
+            hours = int(hours) - 1
+            utcbefore = (rounded_utcnow-datetime.timedelta(hours=hours)).strftime('%Y-%m-%dT%H:%M:%S.000+00')
 
-            forecast = int(forecast)
-            utcafter = (datetime.datetime.utcnow()+datetime.timedelta(hours=forecast)).strftime('%Y-%m-%dT%H:%M:%S.000Z')
+            forecast = int(forecast) + 1
+            utcafter = (rounded_utcnow+datetime.timedelta(hours=forecast)).strftime('%Y-%m-%dT%H:%M:%S.000Z')
 
             time_string = f'{utcbefore}--{utcafter}'
             
