@@ -690,6 +690,7 @@ class Parser:
 
                     if self.manufacturer == 'metcom':
                         # '08)' => '00001000'
+                        # '0A)' => '00001010'
                         # Bit
                         # 7 PDN Power down
                         # 6 RSV Reserved
@@ -699,7 +700,8 @@ class Parser:
                         # 2 DNV Data not valid
                         # 1 CIV Clock invalid
                         # 0 ERR Critical error
-                        s = format((int(line[2].strip(')'))), '08b')
+
+                        s = format(int(line[2].strip(')'), 16), '08b')
                     else:
                         # 'emh'
                         # '00000000)'

@@ -122,6 +122,7 @@ class Meter:
         self.p02_from = meter.get('p02_from') or None
 
         self.registry_timeshift = meter.get('registry_timeshift') or None
+        self.chunk_size = meter.get('chunk_size') or 600        # minutes
 
         self.mode = meter.get('mode') or True          # True => <ACK>050<CR><LF>, False => <ACK>051<CR><LF>
         self._connect()
@@ -705,7 +706,8 @@ class Meter:
                 before = before - datetime.timedelta(minutes=int(self.registry_timeshift))
             
             # p01_to
-            after = max(before + datetime.timedelta(minutes=300), datetime.datetime.now(self.timezone))
+            self.log('DEBUG', f'Chunk size = "{self.chunk_size}" minutes')
+            after = min(before + datetime.timedelta(minutes=int(self.chunk_size)), datetime.datetime.now(self.timezone))
 
             t_to = f"0{after.strftime('%y%m%d%H%M')}"
             t_from = f"0{before.strftime('%y%m%d%H%M')}"

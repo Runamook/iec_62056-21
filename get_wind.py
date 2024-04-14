@@ -9,7 +9,7 @@ import os
 import pathlib
 import requests
 import pandas as pd
-from windpowerlib import ModelChain, WindTurbine
+from windpowerlib import ModelChain, WindTurbine, create_power_curve
 import iec6205621.inserter as iec_inserter
 from requests.auth import HTTPBasicAuth
 
@@ -55,6 +55,17 @@ class VirtualMeter:
         'V126/3000','V126/3300','V126/3450','V164/8000','V164/9500','V80/2000','V90/2000','V90/2000/GS','V90/3000','SCD168/8000'
         ]
 
+    own_turbine_types = ['act_v126_3300', 'act_e-66/18.70']
+    own_turbine_data = {
+        'act_v126_3300': pd.DataFrame(data={
+            'value': [0.0, 0.0, 49022.0, 49022.0, 101881.0, 185361.0, 279269.0, 401162.0, 548734.0, 711842.0, 913150.0, 1154923.0, 1428947.0, 1734931.0, 2057662.0, 2433037.0, 2785466.0, 3065281.0, 3222313.0, 3283706.0, 3297786.0, 3299872.0, 3300000.0, 3300000.0, 3300000.0],  # in W
+            'wind_speed': [0.0,1.0,2.0,3.2,3.7,4.2,4.5,4.7,5.2,5.7,6.2,6.7,7.2,7.7,8.2,8.7,9.2,9.7,10.2,10.7,11.2,11.7,12.2,18.2,100.0]}),
+        'act_e-66/18.70': pd.DataFrame(data={
+            'value':      [0.0, 0.0, 0.0, 0.0, 3820.0, 15340.0, 30970.0, 51820.0, 81120.0, 116760.0, 161680.0, 208760.0, 272960.0, 338740.0, 424350.0, 510110.0, 628180.0, 725600.0, 859770.0, 991000.0, 1135170.0, 1274960.0, 1430380.0, 1549430.0, 1648140.0, 1729380.0, 1770200.0, 1817160.0, 1847380.0, 1864440.0, 1865730.0, 1866640.0, 1867270.0, 1865640.0, 1867290.0, 1865790.0, 1866320.0, 1800000.0, 1800000.0, 1800000.0, 1800000.0, 1800000.0, 1800000.0],
+            'wind_speed': [0.0,1,1.5,2,2.5,3.01,3.49,4,4.51,5,5.5,5.99,6.51,6.98,7.5,7.96,8.49,8.98,9.49,10.01,10.48,10.98,11.52,12,12.48,12.98,13.49,14.01,14.96,15.49,15.96,16.5,16.91,17.52,18.07,18.48,18.91,20,21,22,23,24,25]
+        })
+        }
+
     def __init__(self, meter: dict, logger: logging.Logger, api_key=None, api_user=None, api_password=None, api_url=None, api_provider=None):
         self.logger = logger
 
@@ -77,7 +88,7 @@ class VirtualMeter:
 
             # dt.now().strftime('%Y-%m-%dT%H:%M:%S.000+01:00')
             utcnow = datetime.datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S.000Z')
-            self.api = f'https://api.meteomatics.com/{utcnow}/wind_speed_100m:ms,wind_dir_10m:d,msl_pressure:hPa,t_100m:C,wind_gusts_100m_1h:ms/{self.lat},{self.lon}/json'
+            self.api = f'https://api.meteomatics.com/{utcnow}/wind_speed_149m:ms,wind_dir_10m:d,msl_pressure:hPa,t_2m:K,wind_gusts_100m_1h:ms/{self.lat},{self.lon}/json'
             self.api_user = api_user
             self.api_password = api_password
 
@@ -161,7 +172,7 @@ class VirtualMeter:
             # Every 15 minutes for the last {hours} hours
             # time = '2022-12-22T01:55:00.000+00:00--2022-12-22T02:05:00.000+00:00:PT15M'
 
-            api = f'https://api.meteomatics.com/{time_string}:PT15M/wind_speed_2m:ms,wind_dir_10m:d,msl_pressure:hPa,t_2m:C,wind_gusts_100m_1h:ms/{coord_set}/json?model=mix'
+            api = f'https://api.meteomatics.com/{time_string}:PT15M/wind_speed_149m:ms,wind_dir_10m:d,msl_pressure:hPa,t_2m:K,wind_gusts_100m_1h:ms/{coord_set}/json?model=mix'
 
             auth = HTTPBasicAuth(api_user,api_password)
 
@@ -199,10 +210,10 @@ class VirtualMeter:
                 lon = meter['longitude']
 
                 # [{'date': '2022-12-25T02:25:00Z', 'value': 4.7},{},{}]
-                wind_speed = result_data[f'{lat}:{lon}']['wind_speed_2m:ms']
+                wind_speed = result_data[f'{lat}:{lon}']['wind_speed_149m:ms']
                 wind_dir_10m = result_data[f'{lat}:{lon}']['wind_dir_10m:d']
                 msl_pressure = result_data[f'{lat}:{lon}']['msl_pressure:hPa']
-                t_2m = result_data[f'{lat}:{lon}']['t_2m:C']
+                t_2m = result_data[f'{lat}:{lon}']['t_2m:K']
                 wind_gusts_100m_1h = result_data[f'{lat}:{lon}']['wind_gusts_100m_1h:ms']
 
                 meter_enriched = meter
@@ -256,7 +267,15 @@ class VirtualMeter:
                 {"parameter":"wind_dir_10m:d","coordinates":[{"lat":47.412164,"lon":9.340652,"dates":[{"date":"2022-11-27T23:37:18Z","value":316.4}]}]},
                 {"parameter":"msl_pressure:hPa","coordinates":[{"lat":47.412164,"lon":9.340652,"dates":[{"date":"2022-11-27T23:37:18Z","value":1019}]}]},
                 {"parameter":"t_2m:C","coordinates":[{"lat":47.412164,"lon":9.340652,"dates":[{"date":"2022-11-27T23:37:18Z","value":2.8}]}]}]}
-        """
+        # """
+        # TODO: make heights dynamic!!
+
+        # Currently collected
+        # wind_speed_149m:ms,
+        # wind_dir_10m:d,
+        # msl_pressure:hPa,
+        # t_2m:C,
+        # wind_gusts_100m_1h:ms
         
         auth = HTTPBasicAuth(self.api_user,self.api_password)
 
@@ -332,7 +351,9 @@ class VirtualMeter:
             f = f'/tmp/meter_{self.meter_id}'
             lines = []
             lines.append(f'variable_name,pressure,temperature,wind_speed,roughness_length\r\n')
-            lines.append(f'height,0,2,10,0\r\n')
+
+            # TODO: MAKE IT ADJUSTABLE TO DIFFERENT HEIGHTS!!!!
+            lines.append(f'height,0,2,149,0\r\n')
 
             if not self.api_mass:
                 now = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S%z')
@@ -387,17 +408,32 @@ class VirtualMeter:
         returns: WindTurbine
         """     
 
-        if self.turbine_type not in VirtualMeter.turbine_types:
+        if self.turbine_type not in VirtualMeter.turbine_types and self.turbine_type not in VirtualMeter.own_turbine_types:
             self.logger.warn(f'Turbine "{self.turbine_type}" not in VirtualMeter.turbine_types')
             self.result['error_code'] = 1
             self.result['error_text'] = f'Turbine "{self.turbine_type}" not in VirtualMeter.turbine_types'
             return
 
-        turbine_data = {
-            'turbine_type': self.turbine_type,
-            'hub_height': self.turbine_hub_height
-        }
-        return WindTurbine(**turbine_data)
+
+        if self.turbine_type in VirtualMeter.turbine_types:
+            # Self define a power curve cause default shuts off at 10 m/s
+            turbine_data = {
+                'turbine_type': self.turbine_type,
+                'hub_height': self.turbine_hub_height
+            }
+
+            return WindTurbine(**turbine_data)
+
+        elif self.turbine_type in VirtualMeter.own_turbine_types:
+            self.logger.debug(f'{self.meter_id} own turbine {self.turbine_type}')
+
+            own_turbine_data = {
+                "nominal_power": 3300000,  # in W
+                "hub_height": self.turbine_hub_height,  # in m
+                "power_curve": VirtualMeter.own_turbine_data[self.turbine_type],
+                 }
+
+            return WindTurbine(**own_turbine_data)
 
     def get_power(self):
         """
