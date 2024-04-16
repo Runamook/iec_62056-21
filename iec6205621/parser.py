@@ -67,6 +67,7 @@ class Parser:
         self.data_type = data_type
         self.meter_id = meter['meter_id']
         self.manufacturer = meter['manufacturer'].lower() or 'emh'
+        self.use_first_line = meter['use_first_line'] or False
 
         self.timezone = meter.get('timezone') or 'CET'
         self.offset = Parser.tz_offset.get(self.timezone)
@@ -945,6 +946,8 @@ class Parser:
     def _find_data_blocks(self):
 
         '''
+        "<STX>32.7.0(60.18*V)<CR><LF>52.7.0(61.47*V)<CR><LF>72.7.0(59.88*V)<CR><LF>31.7.0(0.025*A)<CR><LF>51.7.0(0.025*A)<CR><LF>71.7.0(0.025*A)<CR><LF>81.7.0(0.0*deg)<CR><LF>81.7.1(118.5*deg)<CR><LF>81.7.2(-122.0*deg)<CR><LF>81.7.4(179.2*deg)<CR><LF>81.7.15(-179.0*deg)<CR><LF>81.7.26(-178.3*deg)<CR><LF>!<CR><LF><ETX>\x18/MCS5\\@0050010116399<CR><LF>"
+        
         Fix 
         1-0:72.7.0(58.28*V)
         1-0:71.7.0(2.408*A)
@@ -957,7 +960,12 @@ class Parser:
         
         # Table 1 provides F.F error register in the first line,
         # Other tables may provide meter name
-        if not 'F.F' in splitted_data[0]:
+        # In some Metcom meters (j) name goes last and 1st line is actually meaningful
+        if self.use_first_line:
+            pass
+        elif 'F.F' in splitted_data[0]:
+            pass
+        else:
             splitted_data = splitted_data[1:]
 
         pre_parsed = dict()
