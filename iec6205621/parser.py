@@ -67,7 +67,7 @@ class Parser:
         self.data_type = data_type
         self.meter_id = meter['meter_id']
         self.manufacturer = meter['manufacturer'].lower() or 'emh'
-        self.use_first_line = meter['use_first_line'] or False
+        self.use_first_line = meter.get('use_first_line') or False
 
         self.timezone = meter.get('timezone') or 'CET'
         self.offset = Parser.tz_offset.get(self.timezone)
@@ -962,11 +962,17 @@ class Parser:
         # Other tables may provide meter name
         # In some Metcom meters (j) name goes last and 1st line is actually meaningful
         if self.use_first_line:
-            pass
+            # It's explicitly enabled in DB per meter, skip this step
+            self.log('DEBUG', f'self.use_first_line = {self.use_first_line}, skipping')
+            print(f'SD = {splitted_data}')
         elif 'F.F' in splitted_data[0]:
-            pass
+            self.log('DEBUG', f'F.F in line "{splitted_data[0]}", skipping ')
         else:
             splitted_data = splitted_data[1:]
+        # if not 'F.F' in splitted_data[0]:
+        #     splitted_data = splitted_data[1:]
+
+        print(f'SD = {splitted_data}')
 
         pre_parsed = dict()
         
