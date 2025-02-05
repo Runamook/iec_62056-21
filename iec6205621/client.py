@@ -95,8 +95,8 @@ class Meter:
     Tr = 4
     Inactivity_timeout = 60  # 60 - 120s 62056-21 Annex A, note 1
 
-    MAX_CONNECTION_ATTEMPTS = 3
-    MAX_BACKUP_ATTEMPTS = 1
+    # MAX_CONNECTION_ATTEMPTS = 3
+    # MAX_BACKUP_ATTEMPTS = 1
 
     def __init__(self, timeout: int = 300,  **meter):
 
@@ -123,6 +123,9 @@ class Meter:
 
         self.registry_timeshift = meter.get('registry_timeshift') or None
         self.chunk_size = meter.get('chunk_size') or 600        # minutes
+
+        self.MAX_CONNECTION_ATTEMPTS = meter.get('max_connection_attempts') or 3
+        self.MAX_BACKUP_ATTEMPTS = meter.get('max_backup_attempts') or 2
 
         self.mode = meter.get('mode') or True          # True => <ACK>050<CR><LF>, False => <ACK>051<CR><LF>
         self._connect()
